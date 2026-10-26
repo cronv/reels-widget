@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Stage</title>
+<!--
+  Страница-сцена. Её загружают два потребителя:
+    1) виджет — в iframe, с ?fit=1, и шлёт таймлайн через postMessage;
+    2) сервер экспорта — в headless-браузере, вызывая window.__mount/__seek.
+  Обе дороги проходят через один и тот же stage.js, поэтому превью и финальный
+  MP4 не могут разойтись.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #06080B;
+    overflow: hidden;
+  }
+  /* Любая CSS-анимация сломала бы детерминизм покадрового захвата. */
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  #viewport {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #stage {
+    transform-origin: center center;
+    flex: none;
+  }
+  /* Картинка, которая не загрузилась, остаётся ровным блоком, а не дырой. */
+  .st-img--failed {
+    background:
+      repeating-linear-gradient(45deg, #171B21 0 14px, #1E242C 14px 28px) !important;
+  }
+  body.export #viewport { align-items: flex-start; justify-content: flex-start; }
+  body.export #stage { transform: none !important; }
+</style>
+</head>
+<body>
+<div id="viewport"><div id="stage"></div></div>
+
+<script src="./stage.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var FIT = params.get('fit') === '1';
+  if (!FIT) document.body.classList.add('export');
+
+  var root = document.getElementById('stage');
+  var stage = new Stage(root);
+  var mounted = false;
+
+  /** Вписывает кадр 1080×1920 в окно превью. В режиме экспорта не трогаем. */
+  function fit() {
+    if (!FIT || !stage.timeline) return;
+    var scale = Math.min(
+      window.innerWidth / stage.timeline.width,
+      window.innerHeight / stage.timeline.height
+    );
+    root.style.transform = 'scale(' + scale + ')';
+  }
+  window.addEventListener('resize', fit);
+
+  function post(type, payload) {
+    if (window.parent === window) return;
+    try {
+      window.parent.postMessage(Object.assign({ source: 'reels-stage', type: type }, payload), '*');
+    } catch (e) { /* превью может быть в другом origin — это не критично */ }
+  }
+
+  stage.onFrame = function (frame, total) {
+    if (FIT) post('frame', { frame: frame, total: total, playing: stage.isPlaying() });
+  };
+
+  // ── API для серверного захвата ────────────────────────────────────────
+  window.__mount = function (timeline) {
+    stage.mount(timeline);
+    mounted = true;
+    fit();
+    return stage.timeline.durationInFrames;
+  };
+  window.__seek = function (frame) { stage.seek(frame); };
+  window.__waitAssets = function (timeoutMs) { return stage.waitAssets(timeoutMs); };
+  window.__isMounted = function () { return mounted; };
+  window.__stage = stage;
+
+  // ── API для превью в виджете ──────────────────────────────────────────
+  window.addEventListener('message', function (event) {
+    var data = event.data;
+    if (!data || data.source !== 'reels-widget') return;
+    switch (data.type) {
+      case 'mount':
+        stage.mount(data.timeline);
+        mounted = true;
+        fit();
+        // seq возвращается нетронутым: виджет по нему отличает ответ
+        // текущего монтирования от ответа предыдущего.
+        stage.waitAssets(15000).then(function (report) {
+          post('ready', { seq: data.seq, duration: stage.timeline.durationInFrames, assets: report });
+        });
+        break;
+      case 'play': stage.play(data.frame); break;
+      case 'pause': stage.pause(); break;
+      case 'seek': stage.pause(); stage.seek(data.frame); break;
+      case 'toggle': stage.isPlaying() ? stage.pause() : stage.play(); break;
+      default: break;
+    }
+  });
+
+  post('hello', {});
+})();
+</script>
+</body>
+</html>

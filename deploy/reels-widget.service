@@ -1,0 +1,38 @@
+[Unit]
+Description=Reels Widget — сервис сборки рилсов по объектам
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=reels
+Group=reels
+WorkingDirectory=/opt/reels-widget
+EnvironmentFile=/opt/reels-widget/.env
+# Браузер лежит в системном каталоге: служба работает не от root
+# и до домашнего каталога не дотянется.
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node packages/server/dist/index.js
+Restart=always
+RestartSec=5
+
+# Chromium активно пользуется разделяемой памятью; при малом /dev/shm
+# вкладки падают на больших кадрах.
+PrivateTmp=no
+
+# Рендер прожорлив по памяти: лучше перезапуск службы, чем OOM всей машины.
+MemoryMax=3G
+TasksMax=4096
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/reels-widget/.output
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=reels-widget
+
+[Install]
+WantedBy=multi-user.target

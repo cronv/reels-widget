@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Рилсы по объекту</title>
+<link rel="stylesheet" href="./widget.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── рабочая колонка ─────────────────────────────────────────── -->
+  <div class="work">
+
+    <section class="section" id="sec-source">
+      <div class="section-head">
+        <h2>Откуда берём данные</h2>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Источник данных">
+        <button class="tab" role="tab" id="tab-feed" aria-controls="pane-feed" aria-selected="true">Фид</button>
+        <button class="tab" role="tab" id="tab-url" aria-controls="pane-url" aria-selected="false">Ссылка</button>
+        <button class="tab" role="tab" id="tab-manual" aria-controls="pane-manual" aria-selected="false">Вручную</button>
+      </div>
+
+      <!-- Фид -->
+      <div class="pane is-active panel" id="pane-feed" role="tabpanel" aria-labelledby="tab-feed" style="margin-top:12px">
+        <label for="feed-url">Ссылка на выгрузку</label>
+        <div class="row">
+          <input type="url" id="feed-url" placeholder="https://example.ru/feed/realty.xml">
+          <button class="btn" id="feed-load">Загрузить</button>
+        </div>
+        <div style="margin-top:16px">
+          <label for="feed-text">Или вставьте содержимое фида</label>
+          <textarea id="feed-text" placeholder="XML Яндекс.Недвижимости, Avito, ЦИАН или собственный JSON"></textarea>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" id="feed-parse">Разобрать</button>
+            <button class="btn btn--ghost" id="feed-sample">Подставить пример</button>
+          </div>
+        </div>
+        <div id="feed-result"></div>
+      </div>
+
+      <!-- Ссылка -->
+      <div class="pane panel" id="pane-url" role="tabpanel" aria-labelledby="tab-url" style="margin-top:12px">
+        <label for="page-url">Ссылка на карточку ЖК или лота</label>
+        <div class="row">
+          <input type="url" id="page-url" placeholder="https://example-developer.ru/zk/flat-1204">
+          <button class="btn" id="page-load">Разобрать</button>
+        </div>
+        <p class="hint" style="margin-top:10px">
+          Со страницы читаются разметка Schema.org, OpenGraph и текст. Что не нашлось — дозаполните во вкладке «Вручную».
+        </p>
+        <div id="url-result"></div>
+      </div>
+
+      <!-- Вручную -->
+      <div class="pane panel" id="pane-manual" role="tabpanel" aria-labelledby="tab-manual" style="margin-top:12px">
+        <form id="manual-form">
+          <div class="field-grid">
+            <div><label for="m-name">Название ЖК</label><input type="text" id="m-name" name="complexName" placeholder="ЖК «Северное сияние»"></div>
+            <div><label for="m-segment">Класс</label><input type="text" id="m-segment" name="segment" placeholder="Бизнес"></div>
+            <div><label for="m-city">Город</label><input type="text" id="m-city" name="city" placeholder="Москва"></div>
+            <div><label for="m-district">Район</label><input type="text" id="m-district" name="district"></div>
+            <div><label for="m-street">Улица, дом</label><input type="text" id="m-street" name="street"></div>
+            <div><label for="m-metro">Метро</label><input type="text" id="m-metro" name="metroName"></div>
+            <div><label for="m-metro-min">Минут до метро</label><input type="number" id="m-metro-min" name="metroMinutes" min="1" max="90"></div>
+            <div><label for="m-dev">Застройщик</label><input type="text" id="m-dev" name="developer"></div>
+          </div>
+
+          <fieldset>
+            <legend>Лот</legend>
+            <div class="field-grid">
+              <div><label for="m-rooms">Комнат</label><input type="number" id="m-rooms" name="rooms" min="1" max="9"></div>
+              <div><label for="m-area">Площадь, м²</label><input type="text" id="m-area" name="areaTotal" placeholder="62,4"></div>
+              <div><label for="m-kitchen">Кухня, м²</label><input type="text" id="m-kitchen" name="areaKitchen"></div>
+              <div><label for="m-floor">Этаж</label><input type="number" id="m-floor" name="floor" min="1"></div>
+              <div><label for="m-floors">Этажей в доме</label><input type="number" id="m-floors" name="floorsTotal" min="1"></div>
+              <div><label for="m-finish">Отделка</label><input type="text" id="m-finish" name="finishing" placeholder="White box"></div>
+            </div>
+            <label class="check" style="margin-top:12px"><input type="checkbox" id="m-studio" name="isStudio"> Студия</label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Цена и ипотека</legend>
+            <div class="field-grid">
+              <div><label for="m-price">Цена, ₽</label><input type="text" id="m-price" name="price" placeholder="18 450 000"></div>
+              <div><label for="m-oldprice">Цена до скидки, ₽</label><input type="text" id="m-oldprice" name="oldPrice"></div>
+              <div><label for="m-rate">Ставка, %</label><input type="text" id="m-rate" name="mortgageRate" placeholder="5,9"></div>
+              <div><label for="m-program">Программа</label><input type="text" id="m-program" name="mortgageProgram" placeholder="Семейная ипотека"></div>
+            </div>
+            <label class="check" style="margin-top:12px"><input type="checkbox" id="m-from" name="priceIsFrom"> Это цена «от»</label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Сроки и акция</legend>
+            <div class="field-grid">
+              <div><label for="m-completion">Срок сдачи</label><input type="text" id="m-completion" name="completion" placeholder="IV кв. 2027"></div>
+              <div><label for="m-readiness">Готовность, %</label><input type="number" id="m-readiness" name="readinessPercent" min="0" max="100"></div>
+              <div><label for="m-promo">Акция</label><input type="text" id="m-promo" name="promoTitle" placeholder="Скидка 7% на последние лоты"></div>
+              <div><label for="m-until">Действует до</label><input type="text" id="m-until" name="promoUntil" placeholder="2026-11-30"></div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Материалы</legend>
+            <div class="field-grid field-grid--wide">
+              <div><label for="m-highlights">Преимущества, по одному в строке</label><textarea id="m-highlights" name="highlights" style="min-height:84px" placeholder="Школа во дворе&#10;Паркинг на 420 мест"></textarea></div>
+              <div><label for="m-renders">Ссылки на рендеры</label><textarea id="m-renders" name="renders" style="min-height:70px"></textarea></div>
+              <div><label for="m-plans">Ссылки на планировки</label><textarea id="m-plans" name="plans" style="min-height:52px"></textarea></div>
+              <div><label for="m-progress">Фото со стройки</label><textarea id="m-progress" name="progressPhotos" style="min-height:52px"></textarea></div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Контакты в финальном кадре</legend>
+            <div class="field-grid">
+              <div><label for="m-phone">Телефон</label><input type="text" id="m-phone" name="phone"></div>
+              <div><label for="m-site">Сайт</label><input type="text" id="m-site" name="site"></div>
+            </div>
+          </fieldset>
+
+          <div class="row" style="margin-top:18px">
+            <button class="btn" type="submit">Собрать объект</button>
+            <button class="btn btn--ghost" type="button" id="manual-fill">Заполнить из текущего</button>
+          </div>
+        </form>
+        <div id="manual-result"></div>
+      </div>
+    </section>
+
+    <section class="section" id="sec-card" hidden>
+      <div class="section-head">
+        <h2>Объект</h2>
+        <button class="btn btn--ghost btn--small" id="edit-card">Дополнить вручную</button>
+      </div>
+      <div class="panel" id="card-view"></div>
+    </section>
+
+    <section class="section" id="sec-scenario" hidden>
+      <div class="section-head">
+        <h2>Сценарий</h2>
+        <span class="hint">10 и 15 секунд, вертикально 1080×1920</span>
+      </div>
+      <div class="panel" style="padding:0 20px"><div class="scenarios" id="scenarios"></div></div>
+    </section>
+  </div>
+
+  <!-- ── колонка результата ──────────────────────────────────────── -->
+  <aside class="result">
+    <div class="panel">
+      <div class="phone">
+        <iframe id="stage" title="Предпросмотр ролика" src="about:blank"></iframe>
+        <div class="empty" id="stage-empty">Загрузите объект и выберите сценарий — ролик соберётся здесь.</div>
+      </div>
+
+      <div class="transport">
+        <button class="play" id="play" disabled aria-label="Запустить">
+          <svg id="play-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5v13l11-6.5z"/></svg>
+        </button>
+        <input type="range" class="scrub" id="scrub" min="0" max="0" value="0" disabled aria-label="Перемотка">
+        <span class="time" id="time">0,0 / 0,0</span>
+      </div>
+
+      <div class="export">
+        <button class="btn btn--wide" id="export" disabled>Экспортировать MP4</button>
+        <div class="progress-track" id="progress-track" hidden><div class="progress-fill" id="progress-fill"></div></div>
+        <p class="status" id="status"></p>
+        <div id="done"></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="./widget.js"></script>
+</body>
+</html>

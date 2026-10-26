@@ -1,0 +1,73 @@
+# Обратный прокси к сервису рендера.
+# Положить в /etc/nginx/sites-available/reels-widget, поправить server_name,
+# включить симлинком и выпустить сертификат через certbot.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name reels.example.ru;
+
+    # certbot сам добавит редирект на https при выпуске сертификата
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name reels.example.ru;
+
+    # ssl_certificate и ssl_certificate_key пропишет certbot
+
+    # Виджет открывается в iframe на сайте-носителе, поэтому запрет
+    # фреймов ставится адресно, а не через X-Frame-Options: DENY.
+    add_header Content-Security-Policy "frame-ancestors 'self' https://example.ru" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Фид застройщика может весить десятки мегабайт.
+    client_max_body_size 32m;
+
+    location / {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Рендер 15-секундного ролика занимает около минуты, а при
+        # очереди дольше. Стандартных 60 секунд не хватит.
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # Готовые ролики отдаются большими кусками: буферизация только мешает.
+    location /files/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # ── если виджет нужен только сотрудникам ────────────────────────────
+    # Кнопка на сайте остаётся видна всем, кто откроет страницу, поэтому
+    # ограничение ставится на сам сервис. Раскомментируйте и впишите
+    # адреса офиса; loader.js при этом должен остаться доступным, иначе
+    # на сайте посыплются ошибки в консоли.
+    #
+    # location = /loader.js {
+    #     proxy_pass http://127.0.0.1:4000;
+    #     proxy_set_header Host $host;
+    # }
+    # location /api/ {
+    #     allow 203.0.113.0/24;
+    #     deny all;
+    #     proxy_pass http://127.0.0.1:4000;
+    #     proxy_set_header Host $host;
+    #     proxy_read_timeout 300s;
+    # }
+
+    access_log /var/log/nginx/reels-widget.access.log;
+    error_log  /var/log/nginx/reels-widget.error.log;
+}

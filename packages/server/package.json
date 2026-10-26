@@ -1,0 +1,15 @@
+{
+  "name": "@reels/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@reels/core": "*",
+    "playwright": "^1.49.0"
+  }
+}

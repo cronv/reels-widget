@@ -1,0 +1,28 @@
+{
+  "name": "reels-widget",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Виджет: карточка ЖК/лота из фида, ссылки или формы → вертикальные рилсы 10 и 15 секунд",
+  "workspaces": [
+    "packages/core",
+    "packages/server"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/core packages/server",
+    "dev": "npm run build && node --watch packages/server/dist/index.js",
+    "start": "node packages/server/dist/index.js",
+    "smoke": "node scripts/smoke.mjs",
+    "typecheck": "tsc -b --force packages/core packages/server",
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo",
+    "parse": "node scripts/parse.mjs",
+    "bundle": "node scripts/bundle.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}

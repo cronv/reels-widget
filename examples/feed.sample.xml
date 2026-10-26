@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Пример выгрузки в формате Яндекс.Недвижимости (realty-feed).
+  Используется в npm run smoke как эталонный вход для адаптера фида.
+-->
+<realty-feed xmlns="http://webmaster.yandex.ru/schemas/feed/realty/2010-06">
+  <generation-date>2026-10-20T09:00:00+03:00</generation-date>
+
+  <offer internal-id="SL-A-1204">
+    <type>продажа</type>
+    <property-type>жилая</property-type>
+    <category>квартира</category>
+    <url>https://example-developer.ru/zk-severnoe-siyanie/flat-1204</url>
+    <building-name>ЖК «Северное сияние»</building-name>
+    <class>Бизнес</class>
+    <location>
+      <country>Россия</country>
+      <locality-name>Москва</locality-name>
+      <sub-locality-name>Хорошёвский район</sub-locality-name>
+      <address>ул. Авиаконструктора Сухого, 4</address>
+      <metro>
+        <name>Полежаевская</name>
+        <time-on-foot>9</time-on-foot>
+      </metro>
+    </location>
+    <sales-agent>
+      <organization>ГК «Северстрой»</organization>
+    </sales-agent>
+    <price>
+      <value>18450000</value>
+      <currency>RUB</currency>
+    </price>
+    <area>
+      <value>62.4</value>
+      <unit>кв. м</unit>
+    </area>
+    <living-space>
+      <value>34.1</value>
+    </living-space>
+    <kitchen-space>
+      <value>14.8</value>
+    </kitchen-space>
+    <rooms>2</rooms>
+    <floor>12</floor>
+    <floors-total>24</floors-total>
+    <building-section>Корпус 2</building-section>
+    <ceiling-height>3.1</ceiling-height>
+    <renovation>White box</renovation>
+    <built-year>2027-11-01</built-year>
+    <readiness>62</readiness>
+    <mortgage-rate>5.9</mortgage-rate>
+    <image>https://picsum.photos/seed/render-a/1440/1920</image>
+    <image>https://picsum.photos/seed/render-b/1440/1920</image>
+    <image>https://picsum.photos/seed/render-c/1440/1920</image>
+    <image>https://picsum.photos/seed/plan-1204/1200/1200?plan</image>
+    <image>https://picsum.photos/seed/progress-oct/1440/1920?stroyka</image>
+  </offer>
+
+  <offer internal-id="SL-B-0307">
+    <type>продажа</type>
+    <category>квартира</category>
+    <url>https://example-developer.ru/zk-severnoe-siyanie/flat-0307</url>
+    <building-name>ЖК «Северное сияние»</building-name>
+    <location>
+      <locality-name>Москва</locality-name>
+      <sub-locality-name>Хорошёвский район</sub-locality-name>
+    </location>
+    <price>
+      <value>11200000</value>
+    </price>
+    <area>
+      <value>38.2</value>
+    </area>
+    <rooms>студия</rooms>
+    <floor>3</floor>
+    <floors-total>24</floors-total>
+    <built-year>2027-11-01</built-year>
+    <mortgage-rate>5.9</mortgage-rate>
+    <image>https://picsum.photos/seed/render-d/1440/1920</image>
+    <image>https://picsum.photos/seed/plan-0307/1200/1200?plan</image>
+  </offer>
+</realty-feed>
