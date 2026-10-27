@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Browser, Page } from 'playwright';
+import type { Browser, Page } from 'playwright-core';
 import type { Timeline } from '@reels/core';
 import { config } from './config.js';
 
@@ -20,23 +20,45 @@ import { config } from './config.js';
 
 let browserPromise: Promise<Browser> | null = null;
 
+/**
+ * Запускает браузер.
+ *
+ * Используется `playwright-core`, а не `playwright`: нужен только протокол
+ * управления, браузер берётся системный. Для Alpine это единственный рабочий
+ * путь — у Playwright нет сборок Chromium под musl, зато в Alpine есть
+ * собственный пакет `chromium`, и его достаточно передать в `executablePath`.
+ * Попутно из зависимостей уходит ~450 МБ загружаемого браузера.
+ */
 async function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
     browserPromise = (async () => {
-      const { chromium } = await import('playwright');
-      return chromium.launch({
-        executablePath: config.render.chromiumPath,
-        args: [
-          '--no-sandbox',
-          '--disable-dev-shm-usage',
-          '--force-device-scale-factor=1',
-          '--hide-scrollbars',
-          '--disable-lcd-text',
-          // Шрифты и цвета должны совпадать с превью, поэтому
-          // никаких экспериментальных растеризаторов.
-          '--font-render-hinting=none',
-        ],
-      });
+      const { chromium } = await import('playwright-core');
+      try {
+        return await chromium.launch({
+          executablePath: config.render.chromiumPath,
+          args: [
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--force-device-scale-factor=1',
+            '--hide-scrollbars',
+            '--disable-lcd-text',
+            // Шрифты и цвета должны совпадать с превью, поэтому
+            // никаких экспериментальных растеризаторов.
+            '--font-render-hinting=none',
+          ],
+        });
+      } catch (err) {
+        // Без своего браузера playwright-core не умеет ничего, и штатная
+        // ошибка про «executable doesn't exist» не подсказывает, что делать.
+        browserPromise = null;
+        const where = config.render.chromiumPath ?? '(путь не задан)';
+        throw new Error(
+          `Не удалось запустить Chromium по пути ${where}. ` +
+            'Укажите CHROMIUM_PATH: в контейнере это /usr/bin/chromium, ' +
+            'при локальной разработке — путь из «npx playwright install chromium». ' +
+            `Исходная ошибка: ${(err as Error).message}`,
+        );
+      }
     })();
   }
   return browserPromise;

@@ -1,0 +1,65 @@
+# Запуск сервиса рендера.
+#
+#   cd /opt/reels-widget
+#   cp deploy/.env.production.example .env && nano .env
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Сервис слушает только localhost: наружу его выставляет nginx, он же
+# держит HTTPS. Схема с nginx на хосте выбрана потому, что сертификат
+# и домены у вас, скорее всего, уже настроены именно там.
+
+name: reels-widget
+
+services:
+  reels:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: reels-widget:latest
+    container_name: reels-widget
+    restart: unless-stopped
+
+    # required: false — чтобы `docker compose config` и запуск с
+    # переменными из окружения работали до того, как создан .env.
+    # Сервер сам предупредит в логе, если ключевые адреса не заполнены.
+    env_file:
+      - path: ../.env
+        required: false
+
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4000
+      OUTPUT_DIR: /app/.output
+      CHROMIUM_PATH: /usr/bin/chromium
+
+    # Только на localhost хоста. Убрать 127.0.0.1 — значит открыть сервис
+    # в интернет в обход nginx и HTTPS.
+    ports:
+      - "127.0.0.1:4000:4000"
+
+    volumes:
+      # Готовые ролики переживают пересборку образа.
+      - reels-output:/app/.output
+
+    # Chromium активно использует разделяемую память. По умолчанию Docker
+    # даёт /dev/shm всего 64 МБ, и на кадрах 1080×1920 вкладка падает.
+    shm_size: "512mb"
+
+    # Рендер прожорлив: один параллельный поток держит вкладку примерно
+    # на 400 МБ. Лимит не даёт контейнеру утянуть за собой всю машину.
+    mem_limit: 3g
+    # Браузер плодит дочерние процессы; без этого запаса упирается в лимит
+    # задач раньше, чем в память.
+    pids_limit: 2048
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  reels-output:

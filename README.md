@@ -26,9 +26,15 @@
 
 ```bash
 npm install
-npx playwright install chromium   # браузер для рендера
+npx playwright install chromium   # браузер для локальной разработки
 npm run build
 npm start
+```
+
+Проверить, что окружение готово (браузер, ffmpeg, шрифты с кириллицей):
+
+```bash
+npm run verify
 ```
 
 Виджет открывается по `http://localhost:4000` и по
@@ -51,16 +57,31 @@ npm run smoke
 
 ## Размещение на сервере
 
+Сервис упакован в один контейнер на Alpine: Node, системный Chromium,
+ffmpeg и шрифты, без лишнего.
+
 ```bash
-npm run bundle     # dist/reels-widget-<дата>.tar.gz + snippet.html
+cp deploy/.env.production.example .env && nano .env
+docker compose -f deploy/docker-compose.yml up -d --build
+
+# проверка окружения: браузер, ffmpeg, кириллица
+docker compose -f deploy/docker-compose.yml exec reels npm run verify
 ```
 
-Пошаговая инструкция, systemd-юнит, конфиг nginx и скрипт установки —
-в [`deploy/README.md`](deploy/README.md). Коротко: сайт остаётся там, где
-он сейчас, и получает одну строку в шаблоне, а сервис рендера едет на VPS.
-На классический виртуальный хостинг он не встанет ни у какого провайдера:
-нужен headless Chromium (~450 МБ, запуск процессов, рабочий `/dev/shm`)
-и собственный бинарь ffmpeg.
+Пошаговая инструкция, nginx и обслуживание — в
+[`deploy/README.md`](deploy/README.md). Архив для выкладки собирается
+командой `npm run bundle`.
+
+Коротко: сайт остаётся там, где он сейчас, и получает одну строку
+в шаблоне, а контейнер едет на VPS. На классический виртуальный хостинг
+он не встанет ни у какого провайдера — нужен headless Chromium (запуск
+процессов, рабочий `/dev/shm`) и свой бинарь ffmpeg.
+
+**Почему системный Chromium, а не тот, что ставит Playwright.** У Playwright
+нет сборок браузера под musl, и на Alpine `playwright install` не работает
+в принципе. Поэтому берётся пакет `chromium` из Alpine, а из зависимостей
+остаётся только `playwright-core` — ему нужен протокол управления, а не свой
+браузер. Попутно из образа уходит ~450 МБ загрузки.
 
 ## Встраивание
 
@@ -102,10 +123,11 @@ npm run bundle     # dist/reels-widget-<дата>.tar.gz + snippet.html
 |---|---|---|
 | `packages/core` | модель карточки, три адаптера, движок сценариев, свои парсеры XML и HTML | нет |
 | `packages/stage` | сцена: `renderFrame` для превью и для захвата | нет |
-| `packages/server` | HTTP API, очередь рендера, Playwright + ffmpeg | `playwright` |
+| `packages/server` | HTTP API, очередь рендера, Chromium + ffmpeg | `playwright-core` |
 | `packages/embed` | `loader.js` и интерфейс виджета | нет |
 
-Единственная внешняя зависимость во всём проекте — Playwright. Парсеры XML и
+Единственная внешняя зависимость во всём проекте — `playwright-core`
+(управление браузером по протоколу; сам браузер системный). Парсеры XML и
 HTML написаны свои: сервер принимает чужие файлы и ходит по чужим ссылкам,
 и на этом пути меньше зависимостей значит меньше поверхности для обновлений
 по безопасности.
@@ -235,7 +257,7 @@ curl -s localhost:4000/api/extract/feed \
 | `RENDER_CONCURRENCY` | `2` | параллельных рендеров |
 | `RENDER_CRF` | `20` | качество H.264, меньше — лучше и тяжелее |
 | `OUTPUT_DIR` | `.output` | куда складывать MP4 |
-| `CHROMIUM_PATH` | — | свой бинарь Chromium вместо playwright-ского |
+| `CHROMIUM_PATH` | — | путь к Chromium; в контейнере `/usr/bin/chromium` |
 
 ### Что обязательно закрыть перед продом
 

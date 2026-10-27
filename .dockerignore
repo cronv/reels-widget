@@ -1,0 +1,21 @@
+# Всё, что не должно попасть в контекст сборки: он целиком уходит демону,
+# и лишние сотни мегабайт замедляют каждую пересборку.
+node_modules
+**/node_modules
+packages/*/dist
+dist
+.output
+*.tsbuildinfo
+.git
+.gitignore
+.env
+.env.*
+!deploy/.env.production.example
+# Сохранённые страницы сайтов — только для отладки парсера, в образе не нужны.
+examples/fixtures
+# Образ собирается из исходников, а не из архива сборки.
+deploy/*.tar.gz
+*.md
+!deploy/fonts/README.md
+Dockerfile
+.dockerignore

@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "@reels/core": "*",
-    "playwright": "^1.49.0"
+    "playwright-core": "^1.49.0"
   }
 }

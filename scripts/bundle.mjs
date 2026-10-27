@@ -61,4 +61,8 @@ await fs.writeFile(path.join(DIST, 'snippet.html'), snippet, 'utf8');
 
 console.log(`\n✓ ${path.relative(ROOT, out)}  (${(size / 1024 / 1024).toFixed(1)} МБ)`);
 console.log(`✓ ${path.relative(ROOT, path.join(DIST, 'snippet.html'))}`);
-console.log('\nДальше — deploy/README.md: распаковать на сервере и запустить deploy/install.sh');
+console.log('\nДальше, на сервере:');
+console.log('  tar -xzf <архив> --strip-components=1 -C /opt/reels-widget');
+console.log('  cp deploy/.env.production.example .env && nano .env');
+console.log('  docker compose -f deploy/docker-compose.yml up -d --build');
+console.log('\nПодробности — deploy/README.md');
