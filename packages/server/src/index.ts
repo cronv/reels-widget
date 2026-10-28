@@ -73,11 +73,40 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function start(): Promise<void> {
+  /**
+   * В продакшене без пароля не стартуем.
+   *
+   * Сервис виден по публичному адресу, а рендер занимает ядро на минуту:
+   * открытый `/api/render` — это чужой бесплатный видеосервис за ваш счёт.
+   * Предупреждения в логе для такого мало, его никто не читает, поэтому
+   * отказ запускаться — единственный надёжный способ не забыть.
+   */
+  if (config.isProduction && !config.auth.password) {
+    console.error(
+      '\nОШИБКА: не задан ACCESS_PASSWORD.\n' +
+        'Сервис доступен снаружи, а рендер дорогой — без пароля его API открыт всем.\n' +
+        'Добавьте в .env:\n' +
+        '  ACCESS_PASSWORD=<пароль для менеджеров>\n' +
+        '  AUTH_SECRET=<длинная случайная строка>\n' +
+        'Для локальной разработки запускайте без NODE_ENV=production.\n',
+    );
+    process.exit(1);
+  }
+
   await fsp.mkdir(config.paths.output, { recursive: true });
   server.listen(config.port, config.host, () => {
     console.log(`Виджет рилсов: http://localhost:${config.port}`);
     console.log(`  сцена:   ${config.publicUrl}/stage/stage.html`);
-    console.log(`  встройка: <script src="${config.publicUrl}/embed/loader.js" data-reels-widget></script>`);
+    console.log(`  встройка: <script src="${config.publicUrl}/loader.js" data-reels-widget></script>`);
+
+    if (config.auth.password) {
+      console.log(`  доступ:  по паролю, сессия ${config.auth.sessionTtlSeconds / 3600} ч`);
+      if (!config.auth.secretFromEnv) {
+        console.warn('  ВНИМАНИЕ: AUTH_SECRET не задан — после перезапуска придётся войти заново.');
+      }
+    } else {
+      console.warn('  ВНИМАНИЕ: ACCESS_PASSWORD не задан — API открыт без входа (режим разработки).');
+    }
     if (!config.allowedOrigins.length) {
       console.warn('  ВНИМАНИЕ: ALLOWED_ORIGINS пуст — API открыт любому домену.');
     }

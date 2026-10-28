@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -18,9 +19,50 @@ function list(name: string): string[] {
     .filter(Boolean);
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+/**
+ * Секрет для подписи токенов.
+ *
+ * Если его не задали, он генерируется на старте: сервис остаётся
+ * работоспособным, но после перезапуска всем придётся войти заново.
+ * Для одной ноды это терпимо, поэтому падать тут незачем — достаточно
+ * сказать об этом в логе.
+ */
+function authSecret(): string {
+  const fromEnv = process.env.AUTH_SECRET?.trim();
+  if (fromEnv && fromEnv.length >= 16) return fromEnv;
+  return randomBytes(32).toString('base64url');
+}
+
 export const config = {
   port: int('PORT', 4000),
   host: process.env.HOST ?? '0.0.0.0',
+  isProduction,
+
+  /**
+   * Доверять ли заголовку X-Forwarded-For при определении адреса клиента.
+   * Включать только когда перед сервисом действительно стоит свой nginx:
+   * иначе заголовок подделает кто угодно и обойдёт ограничение частоты.
+   */
+  trustProxy: process.env.TRUST_PROXY !== 'false',
+
+  auth: {
+    /** Общий пароль для менеджеров. Пустой — защита выключена. */
+    password: process.env.ACCESS_PASSWORD?.trim() ?? '',
+    secret: authSecret(),
+    secretFromEnv: Boolean(process.env.AUTH_SECRET?.trim()),
+    sessionTtlSeconds: int('SESSION_TTL_HOURS', 12) * 3600,
+  },
+
+  limits: {
+    /** Рендер: занимает ядро на минуту, поэтому лимит жёсткий. */
+    renderPerHour: int('LIMIT_RENDER_PER_HOUR', 30),
+    /** Разбор страниц и фидов: сервер ходит наружу. */
+    extractPerHour: int('LIMIT_EXTRACT_PER_HOUR', 120),
+    /** Попытки входа за 15 минут — защита от перебора пароля. */
+    loginPer15Min: int('LIMIT_LOGIN_PER_15MIN', 10),
+  },
 
   /** Публичный адрес сервера — попадает в ссылки на готовые MP4. */
   publicUrl: (process.env.PUBLIC_URL ?? `http://localhost:${int('PORT', 4000)}`).replace(/\/$/, ''),

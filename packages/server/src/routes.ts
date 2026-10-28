@@ -14,6 +14,8 @@ import {
 import { config } from './config.js';
 import { HttpError, Router, json, readBody } from './http.js';
 import { enqueue, getJob, listJobs, queueStats } from './jobs.js';
+import { authEnabled, checkPassword, isAuthorized, issueToken } from './auth.js';
+import { clientIp, hit, reset } from './ratelimit.js';
 
 /** stage.html, каким его видит headless-браузер на этом же сервере. */
 const stageUrl = `http://127.0.0.1:${config.port}/stage/stage.html`;
@@ -95,11 +97,66 @@ function themeFromBody(body: Record<string, unknown>): Partial<Theme> | undefine
   return out;
 }
 
+/**
+ * Пускает дальше только с действующим токеном и считает запросы.
+ *
+ * Вызывается в начале каждого эндпоинта, который тратит ресурсы: рендер
+ * занимает ядро на минуту, разбор заставляет сервер ходить по внешним
+ * ссылкам. Чтение справочников остаётся открытым — по ним нечего жечь.
+ */
+function guard(ctx: { req: Parameters<typeof clientIp>[0] }, kind: 'render' | 'extract'): void {
+  if (!isAuthorized(ctx.req)) {
+    throw new HttpError(401, 'Нужен вход. Откройте виджет и введите пароль доступа.');
+  }
+  const ip = clientIp(ctx.req);
+  const limit = kind === 'render' ? config.limits.renderPerHour : config.limits.extractPerHour;
+  const result = hit(`${kind}:${ip}`, limit, 3_600_000);
+  if (!result.allowed) {
+    throw new HttpError(
+      429,
+      kind === 'render'
+        ? `Слишком много рендеров: не больше ${limit} в час. Повторите через ${result.retryAfter} с.`
+        : `Слишком много запросов: не больше ${limit} в час. Повторите через ${result.retryAfter} с.`,
+    );
+  }
+}
+
 export function buildRouter(): Router {
   const router = new Router();
 
   router.get('/health', ({ res }) => {
     json(res, 200, { ok: true, queue: queueStats(), uptime: Math.round(process.uptime()) });
+  });
+
+  /** Виджет спрашивает это до показа интерфейса: нужен ли экран входа. */
+  router.get('/api/auth/status', ({ req, res }) => {
+    json(res, 200, { required: authEnabled(), authorized: isAuthorized(req) });
+  });
+
+  router.post('/api/auth/login', async ({ req, res }) => {
+    if (!authEnabled()) {
+      json(res, 200, { token: null, required: false });
+      return;
+    }
+    const ip = clientIp(req);
+    const key = `login:${ip}`;
+    const attempt = hit(key, config.limits.loginPer15Min, 900_000);
+    if (!attempt.allowed) {
+      throw new HttpError(429, `Слишком много попыток входа. Повторите через ${attempt.retryAfter} с.`);
+    }
+
+    const body = asRecord(await readBody(req, 4 * 1024));
+    if (!checkPassword(body.password)) {
+      // Текст одинаковый для пустого и неверного пароля: подсказывать,
+      // что именно не так, значит помогать подбору.
+      throw new HttpError(401, 'Неверный пароль.');
+    }
+    reset(key);
+    json(res, 200, {
+      token: issueToken(),
+      expiresIn: config.auth.sessionTtlSeconds,
+      required: true,
+    });
   });
 
   router.get('/api/scenarios', ({ res }) => {
@@ -108,6 +165,7 @@ export function buildRouter(): Router {
 
   // ── источник 1: фид ───────────────────────────────────────────────────
   router.post('/api/extract/feed', async ({ req, res }) => {
+    guard({ req }, 'extract');
     const body = asRecord(await readBody(req, config.feed.maxBytes));
     let payload: string;
 
@@ -136,6 +194,7 @@ export function buildRouter(): Router {
 
   // ── источник 2: ссылка на карточку ────────────────────────────────────
   router.post('/api/extract/url', async ({ req, res }) => {
+    guard({ req }, 'extract');
     const body = asRecord(await readBody(req, 64 * 1024));
     const target = requireString(body, 'url');
     assertScrapeAllowed(target);
@@ -161,6 +220,7 @@ export function buildRouter(): Router {
 
   // ── источник 3: ручной ввод ───────────────────────────────────────────
   router.post('/api/extract/manual', async ({ req, res }) => {
+    guard({ req }, 'extract');
     const body = asRecord(await readBody(req, 512 * 1024));
     const card = fromManual(body as never);
     json(res, 200, {
@@ -171,6 +231,7 @@ export function buildRouter(): Router {
 
   // ── правки карточки из формы ──────────────────────────────────────────
   router.post('/api/card/merge', async ({ req, res }) => {
+    guard({ req }, 'extract');
     const body = asRecord(await readBody(req, 512 * 1024));
     const base = cardFromBody(body);
     const card = mergeCard(base, (body.patch ?? {}) as never);
@@ -179,6 +240,7 @@ export function buildRouter(): Router {
 
   // ── таймлайн для превью ───────────────────────────────────────────────
   router.post('/api/timeline', async ({ req, res }) => {
+    guard({ req }, 'extract');
     const body = asRecord(await readBody(req, 1024 * 1024));
     const card = cardFromBody(body);
     const scenario = scenarioFromBody(body);
@@ -196,6 +258,7 @@ export function buildRouter(): Router {
 
   /** Какие сценарии доступны этой карточке — виджет гасит остальные кнопки. */
   router.post('/api/timeline/available', async ({ req, res }) => {
+    guard({ req }, 'extract');
     const body = asRecord(await readBody(req, 1024 * 1024));
     const card = cardFromBody(body);
     const available = (Object.keys(SCENARIOS) as ScenarioId[]).map((id) => {
@@ -211,6 +274,7 @@ export function buildRouter(): Router {
 
   // ── рендер ────────────────────────────────────────────────────────────
   router.post('/api/render', async ({ req, res }) => {
+    guard({ req }, 'render');
     const body = asRecord(await readBody(req, 1024 * 1024));
     const card = cardFromBody(body);
     const scenario = scenarioFromBody(body);
@@ -223,13 +287,15 @@ export function buildRouter(): Router {
     json(res, 202, { job, queue: queueStats() });
   });
 
-  router.get('/api/jobs/:id', ({ res, params }) => {
+  router.get('/api/jobs/:id', ({ req, res, params }) => {
+    if (!isAuthorized(req)) throw new HttpError(401, 'Нужен вход.');
     const job = getJob(params.id ?? '');
     if (!job) throw new HttpError(404, 'Задача не найдена.');
     json(res, 200, { job, queue: queueStats() });
   });
 
-  router.get('/api/jobs', ({ res }) => {
+  router.get('/api/jobs', ({ req, res }) => {
+    if (!isAuthorized(req)) throw new HttpError(401, 'Нужен вход.');
     json(res, 200, { jobs: listJobs(), queue: queueStats() });
   });
 

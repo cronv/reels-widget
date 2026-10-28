@@ -19,6 +19,9 @@
   })();
 
   var state = {
+    token: null,
+    /** Что делать после удачного входа — продолжить прерванное действие. */
+    afterLogin: null,
     card: null,
     /** Откуда пришла карточка: профиль сайта и счётчик характеристик. */
     meta: null,
@@ -34,20 +37,60 @@
   var $ = function (id) { return document.getElementById(id); };
   var stageFrame = $('stage');
 
+  // ── доступ ────────────────────────────────────────────────────────────
+
+  /**
+   * Токен доступа хранится в localStorage этого iframe.
+   *
+   * Браузеры разделяют хранилище стороннего фрейма по сайту-носителю,
+   * поэтому войти придётся один раз на каждом сайте, где стоит кнопка.
+   * Это заметно реже, чем кажется, и надёжнее cookie: третьесторонние
+   * cookie Chrome блокирует, и вход ломался бы без внятной причины.
+   */
+  var TOKEN_KEY = 'reels.token';
+
+  function readToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || null; } catch (e) { return state.token || null; }
+  }
+
+  function saveToken(token) {
+    state.token = token;
+    try {
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+    } catch (e) { /* приватный режим: токен живёт до перезагрузки */ }
+  }
+
   // ── обмен с сервером ──────────────────────────────────────────────────
 
-  function api(route, body) {
+  function request(route, body, method) {
+    var headers = { 'content-type': 'application/json' };
+    var token = readToken();
+    if (token) headers.authorization = 'Bearer ' + token;
+
     return fetch(API + route, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      method: method || 'POST',
+      headers: headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
     }).then(function (res) {
-      return res.json().then(function (data) {
+      return res.text().then(function (text) {
+        var data;
+        try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { error: text.slice(0, 200) }; }
+        if (res.status === 401) {
+          // Токен протух или сервер потребовал вход — возвращаем форму.
+          saveToken(null);
+          showLogin(data.error || 'Нужен вход.');
+          var err = new Error(data.error || 'Нужен вход.');
+          err.handled = true;
+          throw err;
+        }
         if (!res.ok) throw new Error(data.error || 'Запрос не прошёл');
         return data;
       });
     });
   }
+
+  function api(route, body) { return request(route, body, 'POST'); }
 
   function busy(button, on, labelWhenBusy) {
     if (!button) return;
@@ -76,6 +119,88 @@
     }
     container.appendChild(div);
     return div;
+  }
+
+  // ── экран входа ───────────────────────────────────────────────────────
+
+  function showLogin(message) {
+    var gate = $('gate');
+    if (!gate) return;
+    gate.hidden = false;
+    $('app').hidden = true;
+    $('gate-error').textContent = message || '';
+    $('gate-error').hidden = !message;
+    var input = $('gate-password');
+    input.value = '';
+    setTimeout(function () { input.focus(); }, 50);
+  }
+
+  function hideLogin() {
+    var gate = $('gate');
+    if (gate) gate.hidden = true;
+    $('app').hidden = false;
+  }
+
+  function submitLogin(event) {
+    event.preventDefault();
+    var btn = $('gate-submit');
+    var password = $('gate-password').value;
+    if (!password) return;
+
+    busy(btn, true, 'Проверяю…');
+    $('gate-error').hidden = true;
+
+    fetch(API + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: password }),
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error(data.error || 'Не удалось войти');
+          return data;
+        });
+      })
+      .then(function (data) {
+        saveToken(data.token);
+        hideLogin();
+        var next = state.afterLogin;
+        state.afterLogin = null;
+        if (next) next();
+      })
+      .catch(function (err) {
+        $('gate-error').textContent = err.message;
+        $('gate-error').hidden = false;
+        $('gate-password').focus();
+      })
+      .finally(function () { busy(btn, false); });
+  }
+
+  /**
+   * Нужен ли вход. Спрашивается один раз при открытии: если защита
+   * выключена (локальная разработка), формы не будет вовсе.
+   */
+  function checkAccess() {
+    var headers = {};
+    var token = readToken();
+    if (token) headers.authorization = 'Bearer ' + token;
+
+    return fetch(API + '/api/auth/status', { headers: headers })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (!data.required || data.authorized) {
+          hideLogin();
+          return true;
+        }
+        saveToken(null);
+        showLogin('');
+        return false;
+      })
+      .catch(function () {
+        // Сервис недоступен — показываем форму, там и будет видна ошибка.
+        showLogin('Сервис не отвечает. Проверьте, что он запущен.');
+        return false;
+      });
   }
 
   // ── вкладки источника ─────────────────────────────────────────────────
@@ -109,7 +234,7 @@
         }
         renderPicker(out, data.cards, data.total);
       })
-      .catch(function (err) { note(out, 'err', err.message); })
+      .catch(function (err) { if (!err.handled) note(out, 'err', err.message); })
       .finally(function () { busy(button, false); });
   }
 
@@ -192,7 +317,7 @@
           out.appendChild(hint);
         }
       })
-      .catch(function (err) { note(out, 'err', err.message); })
+      .catch(function (err) { if (!err.handled) note(out, 'err', err.message); })
       .finally(function () { busy(btn, false); });
   });
 
@@ -211,7 +336,7 @@
     busy(btn, true, 'Собираю…');
     api('/api/extract/manual', data)
       .then(function (res) { useCard(res.card, { specsMatched: 0 }); })
-      .catch(function (err) { note(out, 'err', err.message); })
+      .catch(function (err) { if (!err.handled) note(out, 'err', err.message); })
       .finally(function () { busy(btn, false); });
   });
 
@@ -457,7 +582,7 @@
         var first = data.scenarios.find(function (s) { return s.available; });
         if (first) selectScenario(first.id);
       })
-      .catch(function (err) { note($('card-view'), 'err', err.message); });
+      .catch(function (err) { if (!err.handled) note($('card-view'), 'err', err.message); });
   }
 
   function renderScenarios() {
@@ -520,6 +645,7 @@
         }
       })
       .catch(function (err) {
+        if (err.handled) return;
         $('status').textContent = err.message;
         $('status').className = 'status status--err';
       });
@@ -631,6 +757,7 @@
       .catch(function (err) {
         busy(btn, false);
         $('progress-track').hidden = true;
+        if (err.handled) return;
         $('status').textContent = err.message;
         $('status').className = 'status status--err';
       });
@@ -751,7 +878,26 @@
     if (msg.type === 'page') usePageUrl(msg.url, msg.autoparse !== false);
   });
 
-  usePageUrl(params.get('page'), params.get('autoparse') !== '0');
+  $('gate-form').addEventListener('submit', submitLogin);
+
+  /**
+   * Старт: сначала доступ, потом работа. Предзаполнение адреса ставится
+   * в очередь — если потребуется вход, страница разберётся сразу после
+   * него, и менеджеру не придётся повторять действие.
+   */
+  (function boot() {
+    var page = params.get('page');
+    var autoparse = params.get('autoparse') !== '0';
+    var start = function () { usePageUrl(page, autoparse); };
+
+    state.afterLogin = start;
+    checkAccess().then(function (allowed) {
+      if (allowed) {
+        state.afterLogin = null;
+        start();
+      }
+    });
+  })();
 
   // Сообщаем носителю, какой высоты получился виджет.
   function reportHeight() {

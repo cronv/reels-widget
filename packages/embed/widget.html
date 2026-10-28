@@ -8,7 +8,19 @@
 </head>
 <body>
 
-<div class="app">
+<!-- Экран входа. Показывается, только если на сервере задан пароль. -->
+<div class="gate" id="gate" hidden>
+  <form class="gate-card" id="gate-form">
+    <h1>Вход</h1>
+    <p class="gate-lead">Сборка роликов доступна сотрудникам. Введите пароль доступа.</p>
+    <label for="gate-password">Пароль</label>
+    <input type="password" id="gate-password" autocomplete="current-password" required>
+    <p class="note note--err" id="gate-error" hidden></p>
+    <button class="btn btn--wide" type="submit" id="gate-submit">Войти</button>
+  </form>
+</div>
+
+<div class="app" id="app" hidden>
 
   <!-- ── рабочая колонка ─────────────────────────────────────────── -->
   <div class="work">
