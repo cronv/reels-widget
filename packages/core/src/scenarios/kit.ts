@@ -74,7 +74,9 @@ export function fullImage(
     ken,
     scrim: opts.scrim ?? 0.45,
     z: opts.z ?? 0,
-    anim: opts.anim ? { in: opts.anim } : { in: fadeIn(0, 8) },
+    // Полкадра на проявление фотографии: при восьми кадрах старт ролика
+    // выглядел вспышкой, особенно заметной при зацикливании в ленте.
+    anim: opts.anim ? { in: opts.anim } : { in: fadeIn(0, 16) },
   };
 }
 
@@ -449,7 +451,7 @@ export function surface(
 ): Layer[] {
   const z = opts.z ?? 0;
   const layers: Layer[] = [
-    rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, base, { radius: 0, z, anim: fadeIn(0, 6) }),
+    rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, base, { radius: 0, z, anim: fadeIn(0, 16) }),
   ];
   if (opts.glow) {
     const [gx, gy] = opts.glowAt ?? [22, 18];
@@ -507,7 +509,10 @@ export function scene(
     id,
     from,
     duration,
-    transition: { type: 'fade', dur: 7 },
+    // Две трети секунды на кроссфейд. Чем длиннее переход, тем меньше
+    // меняется картинка за кадр: на семи кадрах стык между тёмной
+    // сценой и светлой читался рывком.
+    transition: { type: 'fade', dur: 20 },
     layers: layers.filter((l): l is Layer => Boolean(l)),
     ...opts,
   };
@@ -601,7 +606,7 @@ export function outroScene(
         { gap: 16 },
       ),
     ],
-    { transition: { type: 'cut', dur: 0 }, background: '#0C0F14' },
+    { transition: { type: 'fade', dur: 18 }, background: '#0C0F14' },
   );
 }
 

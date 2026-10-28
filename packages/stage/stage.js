@@ -580,7 +580,7 @@
 
   // ── применение кадра ────────────────────────────────────────────────────
 
-  function applyLayer(entry, layer, localFrame, sceneDuration) {
+  function applyLayer(entry, layer, localFrame, sceneDuration, motionDuration) {
     var node = entry.node;
 
     // Контейнер стека не анимируется сам — анимируются его элементы,
@@ -589,7 +589,7 @@
       node.style.opacity = '1';
       node.style.transform = 'none';
       for (var si = 0; si < entry.parts.length; si++) {
-        applyLayer(entry.parts[si], entry.parts[si].layer, localFrame, sceneDuration);
+        applyLayer(entry.parts[si], entry.parts[si].layer, localFrame, sceneDuration, motionDuration);
       }
       return;
     }
@@ -644,7 +644,8 @@
     // приедается, а смещение на несколько пикселей оживляет кадр,
     // не перетягивая внимание на себя.
     if (entry.kind === 'graphic' && layer.drift) {
-      var dp = sceneDuration > 1 ? localFrame / (sceneDuration - 1) : 1;
+      var motion = motionDuration || sceneDuration;
+      var dp = motion > 1 ? localFrame / (motion - 1) : 1;
       var dx = (layer.drift.x || 0) * dp;
       var dy = (layer.drift.y || 0) * dp;
       var ds = 1 + (layer.drift.scale || 0) * dp;
@@ -654,7 +655,8 @@
 
     // Ken Burns живёт всю сцену и не зависит от in/out анимаций.
     if (entry.kind === 'image' && layer.ken) {
-      var k = ease(layer.ken.easing || 'linear', sceneDuration > 1 ? localFrame / (sceneDuration - 1) : 1);
+      var kenSpan = motionDuration || sceneDuration;
+      var k = ease(layer.ken.easing || 'linear', kenSpan > 1 ? localFrame / (kenSpan - 1) : 1);
       var scale = layer.ken.fromScale + (layer.ken.toScale - layer.ken.fromScale) * k;
       var tx = (layer.ken.fromX || 0) + ((layer.ken.toX || 0) - (layer.ken.fromX || 0)) * k;
       var ty = (layer.ken.fromY || 0) + ((layer.ken.toY || 0) - (layer.ken.fromY || 0)) * k;
@@ -792,7 +794,18 @@
       entry.holder.style.display = 'block';
 
       var trans = def.transition || { type: 'cut', dur: 0 };
-      var tp = trans.dur > 0 ? ease('easeOut', local / trans.dur) : 1;
+      /**
+       * Кроссфейд идёт строго линейно.
+       *
+       * Любая кривая с ускорением даёт пик скорости: easeOut прыгал на
+       * первом кадре, easeInOut — в середине. А заметен именно пик:
+       * переход с тёмной сцены на белый лист планировки меняет яркость
+       * кадра примерно на 200 единиц, и вопрос лишь в том, размазано
+       * это по всем кадрам перехода или собрано в три. При равномерной
+       * скорости максимальный шаг минимален — это свойство прямой,
+       * а не вкусовое предпочтение.
+       */
+      var tp = trans.dur > 0 ? ease('linear', local / trans.dur) : 1;
       entry.holder.style.opacity = String(clamp01(tp));
       if (trans.type === 'slideUp') {
         entry.holder.style.transform = 'translateY(' + ((1 - tp) * 120).toFixed(2) + 'px)';
@@ -802,9 +815,19 @@
         entry.holder.style.transform = 'none';
       }
 
-      var clampedLocal = Math.min(local, def.duration - 1);
+      /**
+       * Во время перехода уходящая сцена продолжает жить.
+       *
+       * Раньше её кадр подмораживался на последнем значении, пока
+       * сверху проявлялась следующая: панорама по фотографии вставала,
+       * и этот стоп-кадр читался как рывок — каждый стык между сценами
+       * выглядел подёргиванием. Длительность для движения берётся
+       * вместе с хвостом, поэтому панорама и дрейф идут без остановки
+       * до самого конца наложения.
+       */
+      var motionDuration = def.duration + tail;
       for (var i = 0; i < entry.entries.length; i++) {
-        applyLayer(entry.entries[i], entry.entries[i].layer, clampedLocal, def.duration);
+        applyLayer(entry.entries[i], entry.entries[i].layer, local, def.duration, motionDuration);
       }
     }
 

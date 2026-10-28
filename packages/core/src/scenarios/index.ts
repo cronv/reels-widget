@@ -18,7 +18,9 @@ export const SCENARIOS: Record<ScenarioId, ScenarioMeta> = {
     id: 'lot-plan',
     title: 'Лот с планировкой',
     seconds: 15,
-    requires: ['complex.name', 'lot.areaTotal'],
+    // Планировка обязательна: без неё сцена показывала рендер под
+    // подписью «Планировка», то есть выдавала одно за другое.
+    requires: ['complex.name', 'lot.areaTotal', 'media.plan'],
     description: 'Параметры квартиры, планировка на светлом фоне, цена и ипотечный платёж.',
   },
   promo: {
@@ -26,13 +28,17 @@ export const SCENARIOS: Record<ScenarioId, ScenarioMeta> = {
     title: 'Акция / ипотека',
     seconds: 10,
     requires: ['complex.name'],
+    // Без скидки и без ставки ролик обещал выгоду, которой нет.
+    requiresAny: ['promo.title', 'mortgage.rate'],
     description: 'Оффер первым кадром, старая и новая цена, ставка и платёж, дедлайн.',
   },
   progress: {
     id: 'progress',
     title: 'Ход строительства',
     seconds: 15,
-    requires: ['complex.name'],
+    // Без фотографий со стройки сценарий подставлял рендеры и выдавал
+    // их за съёмку с площадки.
+    requires: ['complex.name', 'media.progress'],
     description: 'Три кадра со стройки, шкала готовности и срок сдачи.',
   },
 };
@@ -63,6 +69,13 @@ export function checkAvailability(
 ): { ok: boolean; missing: string[] } {
   const meta = SCENARIOS[scenario];
   const missing = meta.requires.filter((field) => card.missing.includes(field));
+
+  // requiresAny выполнено, если есть хотя бы одно поле из списка.
+  if (meta.requiresAny?.length) {
+    const hasAny = meta.requiresAny.some((field) => !card.missing.includes(field));
+    if (!hasAny) missing.push(...meta.requiresAny);
+  }
+
   return { ok: missing.length === 0, missing };
 }
 

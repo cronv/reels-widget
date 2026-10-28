@@ -114,7 +114,7 @@ export function buildProgress(card: Card, theme: Theme, warnings: string[]): Tim
         }),
         readiness != null
           ? sText(`${readiness}%`, 'display', { size: 200, align: 'center', anim: { in: fadeUp(6, 16, 48) } })
-          : sText(completion ?? 'Строительство идёт', 'display', {
+          : sText(completion ?? name, 'display', {
               size: 92,
               align: 'center',
               anim: { in: fadeUp(6, 16, 48) },
@@ -156,7 +156,9 @@ export function buildProgress(card: Card, theme: Theme, warnings: string[]): Tim
       floors: card.complex.floorsTotal ?? card.lot?.floorsTotal,
       title: name,
       line: completionPhrase(card.complex.completion) ?? place ?? undefined,
-      cta: card.contact?.site ?? card.contact?.phone ?? 'Отчёты каждый месяц',
+      // Раньше тут стояло «Отчёты каждый месяц» — обещание
+      // регулярности, которую никто не подтверждал.
+      cta: card.contact?.site ?? card.contact?.phone ?? 'Подробности в описании',
     }),
   );
   at += d5;

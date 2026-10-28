@@ -34,16 +34,18 @@ export function buildPromo(card: Card, theme: Theme, warnings: string[]): Timeli
   const mortgage = card.mortgage;
   const price = card.price;
   if (!promo && !mortgage) {
-    warnings.push('Нет ни акции, ни ипотечной ставки — ролик соберётся как обычная цена.');
+    warnings.push('Нет ни акции, ни ипотечной ставки — этому сценарию нечего показать.');
   }
 
   const renders = pickMedia(card, ['render', 'photo'], 2);
   const name = clamp(card.complex.name || 'Новостройка', 44);
   const place = locationLine(card.complex.location);
 
+  // Заголовок берётся только из того, что есть: акция или ставка.
+  // Сценарий без них теперь недоступен, поэтому запасной вариант
+  // «Специальная цена» — обещание выгоды без основания — не нужен.
   const offerTitle =
-    promo?.title ??
-    (mortgage ? `Ипотека ${formatRate(mortgage.rate)}` : price ? 'Специальная цена' : 'Спецпредложение');
+    promo?.title ?? (mortgage ? `Ипотека ${formatRate(mortgage.rate)}` : card.complex.name);
   const offerSub = promo?.subtitle ?? mortgage?.program ?? place;
   const deadline = promo?.until ? deadlineLabel(promo.until) : undefined;
 
@@ -130,7 +132,7 @@ export function buildPromo(card: Card, theme: Theme, warnings: string[]): Timeli
           }),
         ], { gap: 18 }),
       ],
-      { background: theme.accent, transition: { type: 'cut', dur: 0 } },
+      { background: theme.accent, transition: { type: 'fade', dur: 12 } },
     ),
   );
   at += d1;
@@ -161,7 +163,7 @@ export function buildPromo(card: Card, theme: Theme, warnings: string[]): Timeli
           : null,
       ], { gap: 14 }),
       card.complex.developer?.name ? watermark(card.complex.developer.name, theme) : null,
-    ]),
+    ], { transition: { type: 'fade', dur: 28 } }),
   );
   at += d2;
 

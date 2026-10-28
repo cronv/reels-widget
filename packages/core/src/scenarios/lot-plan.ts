@@ -92,7 +92,11 @@ export function buildLotPlan(card: Card, theme: Theme, warnings: string[]): Time
   if (lot?.finishing) cells.push({ value: lot.finishing, label: 'Отделка' });
   if (lot?.ceilingHeight) cells.push({ value: `${String(lot.ceilingHeight).replace('.', ',')} м`, label: 'Потолки' });
   if (lot?.building) cells.push({ value: lot.building, label: 'Корпус' });
-  if (cells.length < 2) cells.push({ value: card.complex.segment ?? 'Комфорт', label: 'Класс' });
+  // Раньше здесь при нехватке метрик дописывался класс «Комфорт».
+  // Это выдуманный факт об объекте: в ролике, который уходит клиенту,
+  // такому места нет. Сетка просто собирается из того, что пришло,
+  // а если метрик нет совсем — сцена обходится без неё.
+  if (card.complex.segment) cells.push({ value: card.complex.segment, label: 'Класс' });
 
   scenes.push(
     scene('specs', at, d2, [
@@ -186,7 +190,7 @@ export function buildLotPlan(card: Card, theme: Theme, warnings: string[]): Time
             ], { at: 24, background: '#15130F', padding: 30 }),
           ])
         : null,
-    ], { background: '#F4F2ED' }),
+    ], { background: '#F3F1EB', transition: { type: 'fade', dur: 30 } }),
   );
   at += d3;
 
@@ -222,7 +226,7 @@ export function buildLotPlan(card: Card, theme: Theme, warnings: string[]): Time
           : null,
       ], { gap: 16 }),
       card.complex.developer?.name ? watermark(card.complex.developer.name, theme) : null,
-    ]),
+    ], { transition: { type: 'fade', dur: 30 } }),
   );
   at += d4;
 

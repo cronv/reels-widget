@@ -7,6 +7,7 @@ import {
   formatPerMeter,
   formatPrice,
   locationLine,
+  plural,
   metroLabel,
 } from '../format.js';
 import { CONTENT_WIDTH, FRAME, MARGIN } from '../theme.js';
@@ -81,7 +82,7 @@ export function buildComplexOverview(card: Card, theme: Theme, warnings: string[
       img(0) ? fullImage(img(0)!, { ken: 'in', scrim: 0.3 }) : null,
       bottomScrim(1150),
       stack('bottom', BASE, [
-        sKicker(card.complex.segment ?? 'Новостройка', theme, 2),
+        card.complex.segment ? sKicker(card.complex.segment, theme, 2) : null,
         sRule(theme, 4),
         sText(name, 'display', { anim: { in: fadeUp(6, 16, 56) } }),
         place ? sText(place, 'subtitle', { color: theme.textMuted, anim: { in: fadeUp(12, 14, 36) } }) : null,
@@ -92,21 +93,43 @@ export function buildComplexOverview(card: Card, theme: Theme, warnings: string[
   at += d1;
 
   // ── 2. Чем хорош ─────────────────────────────────────────────────────────
+  //
+  // Сцена собирается из того, что реально есть в карточке. Если
+  // застройщик прислал преимущества — показываем их; если нет —
+  // в дело идут факты об объекте: этажность, корпуса, эскроу. Раньше
+  // на их месте стояла сочинённая строка «Собственная инфраструктура»,
+  // то есть ролик утверждал то, чего в данных не было.
+  const factChips: string[] = [];
+  if (card.complex.floorsTotal) factChips.push(`${card.complex.floorsTotal} этажей`);
+  if (card.complex.buildingsCount) {
+    factChips.push(`${card.complex.buildingsCount} ${plural(card.complex.buildingsCount, ['корпус', 'корпуса', 'корпусов'])}`);
+  }
+  if (card.complex.finishing) factChips.push(`Отделка: ${card.complex.finishing}`);
+  if (card.complex.escrow) factChips.push('Эскроу · 214-ФЗ');
+  if (card.complex.location.metro?.name) factChips.push(`м. ${card.complex.location.metro.name}`);
+
+  const chipsToShow = highlights.length ? highlights : factChips;
+  const kicker = highlights.length ? 'Что внутри' : 'Об объекте';
+
   scenes.push(
     scene('highlights', at, d2, [
       img(1) ? fullImage(img(1)!, { ken: 'out', scrim: 0.42 }) : null,
       bottomScrim(1050),
       stack('bottom', BASE, [
-        sKicker('Что внутри', theme, 2),
-        highlights.length
-          ? sChips(highlights, theme, 6)
-          : sText('Собственная инфраструктура', 'title', { anim: { in: fadeUp(6, 16, 40) } }),
+        chipsToShow.length ? sKicker(kicker, theme, 2) : null,
+        chipsToShow.length ? sChips(chipsToShow, theme, 6) : null,
         completion
           ? sText(completion, 'body', {
               color: theme.textMuted,
               gapBefore: 14,
               anim: { in: fadeUp(18, 14, 28) },
             })
+          : null,
+        // Когда не набралось ни преимуществ, ни фактов, ни срока —
+        // в кадре остаётся только название и адрес, и это честнее
+        // любой придуманной строки.
+        !chipsToShow.length && !completion && place
+          ? sText(place, 'title', { anim: { in: fadeUp(6, 16, 40) } })
           : null,
       ], { gap: 22 }),
     ]),
@@ -126,7 +149,19 @@ export function buildComplexOverview(card: Card, theme: Theme, warnings: string[
     scene('gallery', at, dGallery, [
       ...surface('#0C0F14', { glow: hexToRgba(theme.accent, 0.16), glowAt: [50, 20], noise: 0.05 }),
       graphic('grid', '#FFFFFF', { strength: 0.05, step: 60, z: 1, anim: { in: fadeIn(0, 14) } }),
-      stack('top', 330, [sKicker('Как это выглядит', theme, 2)]),
+      // Заголовок появляется только вместе с картинками: без них
+      // «Как это выглядит» висело над пустым кадром.
+      renders.length ? stack('top', 330, [sKicker('Как это выглядит', theme, 2)]) : null,
+      // Нет ни одного изображения — сцена отдаётся тому, что известно
+      // об объекте, вместо пустоты с подписью.
+      !renders.length
+        ? stack('top', 520, [
+            sKicker('Об объекте', theme, 2),
+            sText(name, 'display', { size: 76, anim: { in: fadeUp(6, 16, 44) } }),
+            place ? sText(place, 'subtitle', { color: theme.textMuted, anim: { in: fadeUp(12, 14, 30) } }) : null,
+            chipsToShow.length ? sChips(chipsToShow, theme, 16) : null,
+          ], { gap: 20 })
+        : null,
       img(2)
         ? panelImage(img(2)!, { x: MARGIN, y: galleryTop, w: CONTENT_WIDTH, h: bigH }, {
             radius: 22,
