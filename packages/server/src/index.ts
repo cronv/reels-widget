@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fsp from 'node:fs/promises';
+import { ScrapeError } from '@reels/core';
 import { config } from './config.js';
 import { HttpError, applyCors, json, serveStatic } from './http.js';
 import { buildRouter } from './routes.js';
@@ -58,7 +59,13 @@ const server = http.createServer(async (req, res) => {
     }
     await match.handler({ req, res, url, params: match.params, body: undefined });
   } catch (err) {
-    const status = err instanceof HttpError ? err.status : 500;
+    // ScrapeError — это отказ чужого сайта, а не наш сбой: такие ответы
+    // не должны выглядеть как внутренняя ошибка и попадать в лог ошибок.
+    const status = err instanceof HttpError
+      ? err.status
+      : err instanceof ScrapeError
+        ? err.status
+        : 500;
     const message = err instanceof Error ? err.message : 'Внутренняя ошибка';
     if (status >= 500) {
       console.error(`[${req.method} ${url.pathname}]`, err);
@@ -107,6 +114,14 @@ async function start(): Promise<void> {
     } else {
       console.warn('  ВНИМАНИЕ: ACCESS_PASSWORD не задан — API открыт без входа (режим разработки).');
     }
+    // Действующие списки печатаются целиком: главный вопрос при разборе
+    // проблем — «а подхватился ли .env» — должен решаться одним взглядом
+    // в лог, без догадок о том, что именно видит процесс.
+    const shown = (list: readonly string[]): string => (list.length ? list.join(', ') : '— пусто');
+    console.log(`  встраивание разрешено: ${shown(config.allowedOrigins)}`);
+    console.log(`  разбор разрешён:       ${shown(config.scrape.allowedHosts)}`);
+    console.log(`  robots.txt не проверяется для: ${shown(config.scrape.trustedHosts)}`);
+
     if (!config.allowedOrigins.length) {
       console.warn('  ВНИМАНИЕ: ALLOWED_ORIGINS пуст — API открыт любому домену.');
     }

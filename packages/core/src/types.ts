@@ -238,6 +238,12 @@ export interface GradientLayer extends LayerBase {
   from: string;
   to: string;
   angle?: number;
+  /**
+   * Радиальный градиент со смещённым центром. Плоскую заливку он
+   * превращает в освещённую поверхность — свет будто падает извне,
+   * и фон перестаёт выглядеть как незаполненный прямоугольник.
+   */
+  radial?: { x: number; y: number; r: number };
 }
 
 export interface ChipsLayer extends LayerBase {
@@ -324,6 +330,45 @@ export type StackItem =
       anim?: { in?: AnimSpec };
     };
 
+/**
+ * Декоративная графика фона.
+ *
+ * Сплошная заливка в вертикальном видео читается как незаполненный
+ * шаблон, но украшать кадр абстракцией — значит просто сменить одну
+ * пустоту на другую. Поэтому набор узкий и взят из языка, которым
+ * объект описывают по-настоящему: чертёжная сетка, фасад, обмерные
+ * засечки. `facade` вдобавок строится из этажности конкретного дома,
+ * то есть рисует именно его, а не «какой-нибудь».
+ *
+ * Все варианты детерминированы: при равном `seed` картинка совпадает
+ * покадрово, иначе превью разошлось бы с экспортом.
+ */
+export type GraphicVariant =
+  | 'grid' // чертёжная сетка, как миллиметровка
+  | 'facade' // сетка окон по этажности, часть светится
+  | 'rings' // концентрические дуги — радиусы доступности
+  | 'rays' // расходящиеся лучи из угла
+  | 'ticks' // обмерная линейка с засечками
+  | 'noise'; // зерно, чтобы заливка не была стерильной
+
+export interface GraphicLayer extends LayerBase {
+  kind: 'graphic';
+  variant: GraphicVariant;
+  color: string;
+  /** Второй цвет: подсветка окон, акцент засечек. */
+  accent?: string;
+  /** 0..1 — насколько графика проступает. */
+  strength?: number;
+  /** Шаг сетки / плотность элементов. */
+  step?: number;
+  /** Этажей в доме — для `facade`. */
+  floors?: number;
+  /** Одинаковый seed даёт одинаковый рисунок. */
+  seed?: number;
+  /** Медленный дрейф за время сцены — оживляет статичный фон. */
+  drift?: { x?: number; y?: number; scale?: number };
+}
+
 export interface StackLayer extends LayerBase {
   kind: 'stack';
   /**
@@ -344,6 +389,7 @@ export type Layer =
   | ChipsLayer
   | CounterLayer
   | ProgressLayer
+  | GraphicLayer
   | StackLayer;
 
 export interface Scene {

@@ -8,6 +8,26 @@
 </head>
 <body>
 
+<!--
+  Страховка от пустого окна.
+  Вся разметка ниже скрыта до того, как скрипт решит, что показывать —
+  вход или приложение. Если скрипт не выполнился, пользователь видел бы
+  белый прямоугольник без единой подсказки. Этот блок показывается сам
+  и прячется скриптом при старте.
+-->
+<div class="boot" id="boot">
+  <div class="boot-card">
+    <p class="boot-title">Загружаю виджет…</p>
+    <p class="boot-hint" id="boot-hint"></p>
+  </div>
+</div>
+<noscript>
+  <div class="boot"><div class="boot-card">
+    <p class="boot-title">Нужен JavaScript</p>
+    <p class="boot-hint">Виджет не работает с отключённым JavaScript.</p>
+  </div></div>
+</noscript>
+
 <!-- Экран входа. Показывается, только если на сервере задан пароль. -->
 <div class="gate" id="gate" hidden>
   <form class="gate-card" id="gate-form">

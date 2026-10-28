@@ -7,6 +7,7 @@ import {
   fadeIn,
   fadeUp,
   fullImage,
+  graphic,
   outroScene,
   rect,
   sCounter,
@@ -16,6 +17,7 @@ import {
   scaleIn,
   scene,
   sec,
+  surface,
   stack,
   watermark,
 } from './kit.js';
@@ -62,10 +64,36 @@ export function buildPromo(card: Card, theme: Theme, warnings: string[]): Timeli
       at,
       d1,
       [
-        rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, theme.accent, {
-          radius: 0,
-          z: 0,
-          anim: { type: 'wipeUp', at: 0, dur: 14, easing: 'expoOut' },
+        // Акцент остаётся фоном — он здесь работает как сигнал, — но
+        // перестаёт быть плоским: пятно света сверху, расходящиеся
+        // лучи от нижнего угла и зерно дают поверхность и направление.
+        ...surface(theme.accent, {
+          glow: 'rgba(255,255,255,0.42)',
+          glowAt: [50, 8],
+          noise: 0.05,
+        }),
+        graphic('rays', theme.accentText, {
+          strength: 0.14,
+          step: 54,
+          z: 2,
+          drift: { x: 26 },
+          anim: { in: fadeIn(0, 20) },
+        }),
+        graphic('rings', theme.accentText, {
+          strength: 0.1,
+          step: 190,
+          z: 2,
+          drift: { scale: 0.05 },
+          anim: { in: fadeIn(4, 24) },
+        }),
+        // Обмерная линейка сверху — тонкая отсылка к чертежу, она же
+        // задаёт кадру верхнюю границу.
+        graphic('ticks', theme.accentText, {
+          box: { x: 0, y: 300, w: FRAME.width, h: 30 },
+          strength: 0.5,
+          step: 30,
+          z: 3,
+          anim: { in: fadeIn(8, 16) },
         }),
         stack('top', 560, [
           promo?.discountPercent
@@ -196,6 +224,7 @@ export function buildPromo(card: Card, theme: Theme, warnings: string[]): Timeli
   // ── 4. Дедлайн и действие ────────────────────────────────────────────────
   scenes.push(
     outroScene(at, d4, theme, {
+      floors: card.complex.floorsTotal ?? card.lot?.floorsTotal,
       title: deadline ?? offerTitle,
       line: name,
       cta: card.contact?.phone ?? card.contact?.site ?? 'Условия в описании',

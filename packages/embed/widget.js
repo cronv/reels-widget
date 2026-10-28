@@ -126,6 +126,7 @@
   function showLogin(message) {
     var gate = $('gate');
     if (!gate) return;
+    hideBoot();
     gate.hidden = false;
     $('app').hidden = true;
     $('gate-error').textContent = message || '';
@@ -138,7 +139,13 @@
   function hideLogin() {
     var gate = $('gate');
     if (gate) gate.hidden = true;
+    hideBoot();
     $('app').hidden = false;
+  }
+
+  function hideBoot() {
+    var boot = $('boot');
+    if (boot) boot.hidden = true;
   }
 
   function submitLogin(event) {

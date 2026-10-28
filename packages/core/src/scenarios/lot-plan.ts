@@ -17,6 +17,7 @@ import {
   fadeIn,
   fadeUp,
   fullImage,
+  graphic,
   outroScene,
   panelImage,
   rect,
@@ -29,6 +30,7 @@ import {
   scaleIn,
   scene,
   sec,
+  surface,
   stack,
   watermark,
 } from './kit.js';
@@ -95,7 +97,10 @@ export function buildLotPlan(card: Card, theme: Theme, warnings: string[]): Time
   scenes.push(
     scene('specs', at, d2, [
       renders[1] ? fullImage(renders[1].url, { ken: 'out', scrim: 0.62 }) : null,
-      rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, 'rgba(8,10,14,0.55)', { radius: 0, anim: fadeIn(0, 8) }),
+      rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, 'rgba(8,10,14,0.58)', { radius: 0, anim: fadeIn(0, 8) }),
+      // Та же чертёжная сетка, что на кадре с планировкой: параметры
+      // квартиры и её план — один разворот, и фон это связывает.
+      graphic('grid', '#FFFFFF', { strength: 0.07, step: 60, z: 1, anim: { in: fadeIn(2, 16) } }),
       stack('top', 700, [
         sText(title, 'display', { size: 78, anim: { in: fadeUp(4, 16, 48) } }),
         sRule(theme, 10, 120),
@@ -116,10 +121,35 @@ export function buildLotPlan(card: Card, theme: Theme, warnings: string[]): Time
 
   scenes.push(
     scene('plan', at, d3, [
-      // z: 0 — это подложка сцены. По умолчанию rect рисуется поверх
-      // изображений (он чаще нужен как затемняющая вуаль), и без явного
-      // нуля светлый фон закрыл бы саму планировку.
-      rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, '#F4F2ED', { radius: 0, z: 0, anim: fadeIn(0, 8) }),
+      // Чертёжный лист вместо плоского белого: тёплая бумага, модульная
+      // сетка и обмерная линейка. Планировка — это чертёж, и подложка
+      // говорит на том же языке; заодно белый прямоугольник перестаёт
+      // выглядеть как непрогрузившийся кадр.
+      //
+      // z: 0 — подложка. По умолчанию rect рисуется поверх изображений
+      // (он чаще нужен как затемняющая вуаль), и без явного нуля фон
+      // закрыл бы саму планировку.
+      ...surface('#F3F1EB', { glow: 'rgba(255,255,255,0.9)', glowAt: [50, 30], noise: 0.04 }),
+      graphic('grid', '#1A1712', {
+        strength: 0.18,
+        step: 54,
+        z: 1,
+        anim: { in: fadeIn(0, 14) },
+      }),
+      graphic('ticks', '#1A1712', {
+        box: { x: 0, y: 268, w: FRAME.width, h: 30 },
+        strength: 0.45,
+        step: 30,
+        z: 2,
+        anim: { in: fadeIn(6, 14) },
+      }),
+      graphic('ticks', '#1A1712', {
+        box: { x: 0, y: 1612, w: FRAME.width, h: 30 },
+        strength: 0.45,
+        step: 30,
+        z: 2,
+        anim: { in: fadeIn(10, 14) },
+      }),
       stack('top', 330, [
         sText('Планировка', 'kicker', {
           color: '#8C8373',
@@ -199,6 +229,7 @@ export function buildLotPlan(card: Card, theme: Theme, warnings: string[]): Time
   // ── 5. Финал ─────────────────────────────────────────────────────────────
   scenes.push(
     outroScene(at, d5, theme, {
+      floors: card.complex.floorsTotal ?? card.lot?.floorsTotal,
       title,
       line: name,
       cta: card.contact?.phone ?? card.contact?.site ?? 'Забронировать в описании',

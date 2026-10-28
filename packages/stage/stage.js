@@ -164,9 +164,211 @@
   function buildGradient(layer) {
     var node = el('div', 'st-grad');
     applyBox(node, layer.box);
-    node.style.background =
-      'linear-gradient(' + (layer.angle || 180) + 'deg, ' + layer.from + ', ' + layer.to + ')';
+    if (layer.radial) {
+      node.style.background =
+        'radial-gradient(' + layer.radial.r + '% ' + layer.radial.r + '% at ' +
+        layer.radial.x + '% ' + layer.radial.y + '%, ' + layer.from + ', ' + layer.to + ')';
+    } else {
+      node.style.background =
+        'linear-gradient(' + (layer.angle || 180) + 'deg, ' + layer.from + ', ' + layer.to + ')';
+    }
     return { node: node, kind: 'gradient' };
+  }
+
+  // ── фоновая графика ─────────────────────────────────────────────────────
+
+  /**
+   * Цвета попадают прямо в разметку SVG, поэтому сюда пускаем только
+   * безопасный набор символов. Тема приходит из конфигурации, но путь
+   * «внешние данные → innerHTML» закрывать надо в любом случае.
+   */
+  function safeColor(value, fallback) {
+    return typeof value === 'string' && /^[#a-zA-Z0-9(),.%\s-]{1,48}$/.test(value)
+      ? value
+      : fallback;
+  }
+
+  /**
+   * Генератор псевдослучайных чисел с seed.
+   * Math.random() сделал бы каждый кадр уникальным, и при покадровом
+   * захвате фон бы мерцал — графика обязана быть детерминированной.
+   */
+  function rng(seed) {
+    var s = (seed || 1) >>> 0;
+    return function () {
+      s ^= s << 13; s >>>= 0;
+      s ^= s >> 17;
+      s ^= s << 5; s >>>= 0;
+      return s / 4294967296;
+    };
+  }
+
+  function svgWrap(w, h, inner) {
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" ' +
+      'viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid slice">' + inner + '</svg>';
+  }
+
+  var GRAPHICS = {
+    /** Чертёжная сетка: крупный модуль и мелкая клетка внутри. */
+    grid: function (w, h, o) {
+      var step = o.step || 60;
+      var parts = ['<g stroke="' + o.color + '" fill="none">'];
+      for (var x = 0; x <= w; x += step) {
+        var major = (x / step) % 5 === 0;
+        parts.push('<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + h +
+          '" stroke-width="' + (major ? 2 : 1) + '" opacity="' + (major ? 0.5 : 0.22) + '"/>');
+      }
+      for (var y = 0; y <= h; y += step) {
+        var majorY = (y / step) % 5 === 0;
+        parts.push('<line x1="0" y1="' + y + '" x2="' + w + '" y2="' + y +
+          '" stroke-width="' + (majorY ? 2 : 1) + '" opacity="' + (majorY ? 0.5 : 0.22) + '"/>');
+      }
+      parts.push('</g>');
+      return parts.join('');
+    },
+
+    /**
+     * Силуэт дома с окнами.
+     *
+     * Важна именно форма: россыпь окон во весь кадр читается как
+     * текстура обоев, а не как здание. Поэтому рисуются три секции
+     * разной высоты, стоящие на линии земли, и окна живут только
+     * внутри них. Высота главной секции берётся из этажности объекта,
+     * так что девятиэтажка и башня выглядят по-разному.
+     */
+    facade: function (w, h, o) {
+      var floors = Math.max(5, Math.min(o.floors || 14, 30));
+      var ground = h * 0.9;
+      var floorH = Math.min(46, (ground - h * 0.1) / floors);
+
+      // Боковые секции ниже главной — так силуэт перестаёт быть
+      // прямоугольником и читается как дом, а не как столб.
+      var sections = [
+        { w: w * 0.26, floors: Math.max(4, Math.round(floors * 0.62)), cols: 3 },
+        { w: w * 0.34, floors: floors, cols: 4 },
+        { w: w * 0.24, floors: Math.max(4, Math.round(floors * 0.78)), cols: 3 },
+      ];
+      var totalW = sections.reduce(function (a, s) { return a + s.w; }, 0);
+      var x0 = (w - totalW) / 2;
+
+      var rand = rng(o.seed || floors * 7 + 11);
+      var body = [];
+      var dim = [];
+      var lit = [];
+
+      for (var i = 0; i < sections.length; i += 1) {
+        var sec = sections[i];
+        var top = ground - sec.floors * floorH;
+        body.push('<rect x="' + x0.toFixed(1) + '" y="' + top.toFixed(1) +
+          '" width="' + sec.w.toFixed(1) + '" height="' + (ground - top).toFixed(1) + '"/>');
+
+        var cw = sec.w / sec.cols;
+        var winW = cw * 0.46;
+        var winH = floorH * 0.42;
+        for (var r = 0; r < sec.floors; r += 1) {
+          for (var c = 0; c < sec.cols; c += 1) {
+            var wx = x0 + c * cw + (cw - winW) / 2;
+            var wy = top + r * floorH + (floorH - winH) / 2;
+            var cell = '<rect x="' + wx.toFixed(1) + '" y="' + wy.toFixed(1) +
+              '" width="' + winW.toFixed(1) + '" height="' + winH.toFixed(1) + '" rx="1.5"/>';
+            if (rand() > 0.72) lit.push(cell);
+            else dim.push(cell);
+          }
+        }
+        x0 += sec.w;
+      }
+
+      return [
+        // Корпус чуть светлее фона — силуэт виден даже там, где окон нет.
+        '<g fill="' + o.color + '" opacity="0.07">' + body.join('') + '</g>',
+        '<g fill="' + o.color + '" opacity="0.16">' + dim.join('') + '</g>',
+        '<g fill="' + o.accent + '" opacity="0.9">' + lit.join('') + '</g>',
+        '<line x1="0" y1="' + ground.toFixed(1) + '" x2="' + w + '" y2="' + ground.toFixed(1) +
+          '" stroke="' + o.color + '" stroke-width="1.5" opacity="0.22"/>',
+      ].join('');
+    },
+
+    /** Концентрические дуги — язык карт доступности. */
+    rings: function (w, h, o) {
+      var cx = w * 0.5;
+      var cy = h * 0.42;
+      var parts = ['<g stroke="' + o.color + '" fill="none">'];
+      for (var i = 1; i <= 7; i += 1) {
+        var r = (o.step || 150) * i;
+        parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+          '" stroke-width="' + (i % 3 === 0 ? 2.5 : 1.2) + '" opacity="' + (0.42 - i * 0.04).toFixed(3) + '"/>');
+      }
+      parts.push('</g>');
+      return parts.join('');
+    },
+
+    /** Лучи из нижнего угла — направление, движение. */
+    rays: function (w, h, o) {
+      var ox = -w * 0.15;
+      var oy = h * 1.1;
+      var parts = ['<g stroke="' + o.color + '" fill="none" stroke-width="' + (o.step || 46) + '">'];
+      for (var i = 0; i < 9; i += 1) {
+        var angle = (-78 + i * 9.5) * Math.PI / 180;
+        parts.push('<line x1="' + ox + '" y1="' + oy +
+          '" x2="' + (ox + Math.cos(angle) * h * 2).toFixed(0) +
+          '" y2="' + (oy + Math.sin(angle) * h * 2).toFixed(0) +
+          '" opacity="' + (i % 2 ? 0.10 : 0.18) + '"/>');
+      }
+      parts.push('</g>');
+      return parts.join('');
+    },
+
+    /** Обмерная линейка: длинные и короткие засечки. */
+    ticks: function (w, h, o) {
+      var step = o.step || 28;
+      var parts = ['<g stroke="' + o.color + '">'];
+      for (var x = 0, i = 0; x <= w; x += step, i += 1) {
+        var long = i % 5 === 0;
+        parts.push('<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + (long ? 26 : 13) +
+          '" stroke-width="' + (long ? 2.5 : 1.5) + '" opacity="' + (long ? 0.7 : 0.35) + '"/>');
+      }
+      parts.push('</g>');
+      return parts.join('');
+    },
+
+    /**
+     * Зерно. Заливка без текстуры в видео выглядит мёртвой, а на
+     * тёмном фоне ещё и показывает полосы от сжатия; лёгкий шум их
+     * разбивает.
+     */
+    noise: function (w, h, o) {
+      return '<filter id="n' + (o.seed || 1) + '">' +
+        '<feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="' + (o.seed || 1) + '"/>' +
+        '<feColorMatrix type="saturate" values="0"/></filter>' +
+        '<rect width="' + w + '" height="' + h + '" filter="url(#n' + (o.seed || 1) + ')"/>';
+    },
+  };
+
+  function buildGraphic(layer, theme) {
+    var node = el('div', 'st-graphic');
+    applyBox(node, layer.box);
+    node.style.overflow = 'hidden';
+    node.style.pointerEvents = 'none';
+
+    var inner = el('div');
+    inner.style.position = 'absolute';
+    inner.style.inset = '0';
+    inner.style.opacity = String(layer.strength == null ? 0.3 : layer.strength);
+    inner.style.willChange = 'transform';
+
+    var draw = GRAPHICS[layer.variant] || GRAPHICS.grid;
+    var w = Math.round(layer.box.w) || 1080;
+    var h = Math.round(layer.box.h) || 1920;
+    inner.innerHTML = svgWrap(w, h, draw(w, h, {
+      color: safeColor(layer.color, theme.text),
+      accent: safeColor(layer.accent, theme.accent),
+      step: layer.step,
+      floors: layer.floors,
+      seed: layer.seed,
+    }));
+
+    node.appendChild(inner);
+    return { node: node, kind: 'graphic', inner: inner };
   }
 
   function buildChips(layer, theme) {
@@ -372,7 +574,8 @@
     gradient: buildGradient,
     chips: buildChips,
     counter: buildCounter,
-    progress: buildProgress
+    progress: buildProgress,
+    graphic: buildGraphic
   };
 
   // ── применение кадра ────────────────────────────────────────────────────
@@ -435,6 +638,18 @@
     if (outAnim) {
       var q = animProgress(outAnim, localFrame);
       if (outAnim.type === 'fade') opacity *= 1 - q;
+    }
+
+    // Медленный дрейф фоновой графики: статичный узор за 3 секунды
+    // приедается, а смещение на несколько пикселей оживляет кадр,
+    // не перетягивая внимание на себя.
+    if (entry.kind === 'graphic' && layer.drift) {
+      var dp = sceneDuration > 1 ? localFrame / (sceneDuration - 1) : 1;
+      var dx = (layer.drift.x || 0) * dp;
+      var dy = (layer.drift.y || 0) * dp;
+      var ds = 1 + (layer.drift.scale || 0) * dp;
+      entry.inner.style.transform =
+        'translate(' + dx.toFixed(2) + 'px,' + dy.toFixed(2) + 'px) scale(' + ds.toFixed(4) + ')';
     }
 
     // Ken Burns живёт всю сцену и не зависит от in/out анимаций.

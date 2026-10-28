@@ -7,6 +7,8 @@ import {
   fadeIn,
   fadeUp,
   fullImage,
+  graphic,
+  hexToRgba,
   outroScene,
   rect,
   sBadge,
@@ -17,6 +19,7 @@ import {
   sText,
   scene,
   sec,
+  surface,
   stack,
   watermark,
 } from './kit.js';
@@ -90,9 +93,18 @@ export function buildProgress(card: Card, theme: Theme, warnings: string[]): Tim
   scenes.push(
     scene('readiness', at, d4, [
       // Подложка на случай, если фото не загрузилось: z ниже картинки.
-      rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, theme.bg, { radius: 0, z: 0, anim: fadeIn(0, 8) }),
+      ...surface(theme.bg, { glow: hexToRgba(theme.accent, 0.18), glowAt: [50, 24], noise: 0.05, z: 0 }),
       shots[2] ? fullImage(shots[2].url, { ken: 'out', scrim: 0.7 }) : null,
-      rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, 'rgba(8,10,14,0.58)', { radius: 0, anim: fadeIn(0, 8) }),
+      rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, 'rgba(8,10,14,0.62)', { radius: 0, anim: fadeIn(0, 8) }),
+      // Концентрические дуги вокруг цифры готовности: показатель растёт
+      // от центра, и графика повторяет это движение.
+      graphic('rings', '#FFFFFF', {
+        strength: 0.14,
+        step: 165,
+        z: 2,
+        drift: { scale: 0.06 },
+        anim: { in: fadeIn(2, 20) },
+      }),
       stack('top', 720, [
         sText('Готовность объекта', 'kicker', {
           color: theme.accent,
@@ -141,6 +153,7 @@ export function buildProgress(card: Card, theme: Theme, warnings: string[]): Tim
   // ── 6. Финал ─────────────────────────────────────────────────────────────
   scenes.push(
     outroScene(at, d5, theme, {
+      floors: card.complex.floorsTotal ?? card.lot?.floorsTotal,
       title: name,
       line: completionPhrase(card.complex.completion) ?? place ?? undefined,
       cta: card.contact?.site ?? card.contact?.phone ?? 'Отчёты каждый месяц',

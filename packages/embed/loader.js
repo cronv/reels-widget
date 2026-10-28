@@ -105,6 +105,11 @@
     '.close:focus-visible { outline: 2px solid #15181D; outline-offset: 2px; }',
     '.close svg { width: 16px; height: 16px; fill: currentColor; }',
     'iframe { flex: 1; width: 100%; border: 0; display: block; background: #F2F3F5; }',
+    '.notice {',
+    '  margin: 16px; padding: 14px 16px; border-radius: 12px;',
+    '  background: #FCEDEC; color: #96241F; font: 400 13.5px/1.5 Inter, system-ui, sans-serif;',
+    '}',
+    '.notice[hidden] { display: none; }',
     '@media (max-width: 760px) {',
     '  .overlay { padding: 0; }',
     '  .panel { height: 100%; max-width: none; border-radius: 0; }',
@@ -155,6 +160,12 @@
   bar.appendChild(closeBtn);
 
   panel.appendChild(bar);
+
+  var notice = document.createElement('div');
+  notice.className = 'notice';
+  notice.hidden = true;
+  panel.appendChild(notice);
+
   overlay.appendChild(panel);
   root.appendChild(overlay);
 
@@ -165,6 +176,9 @@
   var frame = null;
   var lastFocused = null;
   var scrollLock = '';
+  var frameWatch = null;
+  /** Фрейм прислал хоть одно сообщение — значит, он загрузился. */
+  var frameAlive = false;
 
   /** iframe создаётся при первом открытии: до него виджет ничего не грузит. */
   function ensureFrame() {
@@ -183,10 +197,32 @@
     return frame;
   }
 
+  /**
+   * Показывает причину, если фрейм так и не ожил.
+   *
+   * Браузер блокирует встраивание по Content-Security-Policy молча:
+   * на странице-носителе не возникает ни ошибки, ни события, и окно
+   * просто остаётся белым. Единственный доступный признак — фрейм
+   * не прислал ни одного сообщения; об этом и говорим прямым текстом.
+   */
+  function watchFrame() {
+    clearTimeout(frameWatch);
+    frameWatch = setTimeout(function () {
+      if (frameAlive || overlay.hidden) return;
+      notice.hidden = false;
+      notice.textContent =
+        'Виджет не загрузился. Чаще всего это значит, что сервис запрещает ' +
+        'встраивание на этот домен: добавьте ' + location.origin +
+        ' в ALLOWED_ORIGINS и перезапустите сервис. Подробности — в консоли браузера.';
+    }, 6000);
+  }
+
   function open() {
     if (!overlay.hidden) return;
     lastFocused = document.activeElement;
+    notice.hidden = true;
     ensureFrame();
+    watchFrame();
     overlay.hidden = false;
     launcher.hidden = true;
     launcher.setAttribute('aria-expanded', 'true');
@@ -198,6 +234,7 @@
 
   function close() {
     if (overlay.hidden) return;
+    clearTimeout(frameWatch);
     overlay.hidden = true;
     launcher.hidden = false;
     launcher.setAttribute('aria-expanded', 'false');
@@ -227,6 +264,9 @@
     if (!frame || event.source !== frame.contentWindow) return;
     var msg = event.data;
     if (!msg || msg.source !== 'reels-widget-frame') return;
+    frameAlive = true;
+    clearTimeout(frameWatch);
+    notice.hidden = true;
     if (msg.type === 'close') close();
   });
 

@@ -4,6 +4,7 @@ import type {
   ChipsLayer,
   CounterLayer,
   GradientLayer,
+  GraphicLayer,
   ImageLayer,
   Layer,
   ProgressLayer,
@@ -414,6 +415,68 @@ export function sPanel(
   };
 }
 
+// --- фоновая графика --------------------------------------------------------
+
+export function graphic(
+  variant: GraphicLayer['variant'],
+  color: string,
+  opts: Partial<Omit<GraphicLayer, 'kind' | 'id' | 'variant' | 'color'>> = {},
+): GraphicLayer {
+  return {
+    kind: 'graphic',
+    id: uid('gfx'),
+    variant,
+    color,
+    box: { x: 0, y: 0, w: FRAME.width, h: FRAME.height },
+    strength: 0.3,
+    z: 1,
+    anim: { in: fadeIn(0, 14) },
+    ...opts,
+  };
+}
+
+/**
+ * Слоистая подложка вместо плоской заливки.
+ *
+ * Три слоя: базовый цвет, смещённое радиальное пятно света и зерно.
+ * По отдельности каждый почти незаметен, вместе они дают поверхность,
+ * а не прямоугольник краски — именно этим «пустой» кадр отличается
+ * от оформленного.
+ */
+export function surface(
+  base: string,
+  opts: { glow?: string; glowAt?: [number, number]; noise?: number; z?: number } = {},
+): Layer[] {
+  const z = opts.z ?? 0;
+  const layers: Layer[] = [
+    rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, base, { radius: 0, z, anim: fadeIn(0, 6) }),
+  ];
+  if (opts.glow) {
+    const [gx, gy] = opts.glowAt ?? [22, 18];
+    layers.push({
+      kind: 'gradient',
+      id: uid('glow'),
+      from: opts.glow,
+      to: 'rgba(0,0,0,0)',
+      radial: { x: gx, y: gy, r: 85 },
+      box: { x: 0, y: 0, w: FRAME.width, h: FRAME.height },
+      z: z + 1,
+      anim: { in: fadeIn(0, 18) },
+    });
+  }
+  if (opts.noise !== 0) {
+    layers.push(
+      graphic('noise', '#ffffff', {
+        strength: opts.noise ?? 0.05,
+        seed: 7,
+        z: z + 2,
+        anim: { in: fadeIn(0, 10) },
+      }),
+    );
+  }
+  return layers;
+}
+
 /** Плашка в углу: застройщик или бренд агентства. */
 export function watermark(label: string, theme: Theme): TextLayer {
   return {
@@ -450,55 +513,102 @@ export function scene(
   };
 }
 
-/** Финальный кадр: акцентная заливка, название и контакт. */
+/**
+ * Финальный кадр.
+ *
+ * Раньше здесь была сплошная заливка акцентом — в ролике она читалась
+ * как незавёрстанный экран. Теперь кадр строится из самого объекта:
+ * фасад рисуется по этажности дома, поэтому у девятиэтажки и у башни
+ * он разный, а подложка собрана слоями — цвет, пятно света, зерно.
+ *
+ * Тёмная база вместо акцентной: последний кадр держится на экране
+ * дольше прочих, и залитый цветом прямоугольник на нём утомляет.
+ * Акцент остаётся светящимся окнам и подчёркиванию — его мало,
+ * и поэтому он заметен.
+ */
 export function outroScene(
   from: number,
   duration: number,
   theme: Theme,
-  opts: { title: string; line?: string; cta?: string },
+  opts: { title: string; line?: string; cta?: string; floors?: number },
 ): Scene {
   return scene(
     'outro',
     from,
     duration,
     [
-      rect({ x: 0, y: 0, w: FRAME.width, h: FRAME.height }, theme.accent, {
-        radius: 0,
-        z: 0,
-        anim: { type: 'wipeUp', at: 0, dur: 16, easing: 'expoOut' },
+      ...surface('#0C0F14', { glow: hexToRgba(theme.accent, 0.3), glowAt: [78, 14], noise: 0.055 }),
+      // Дом занимает верхние две трети кадра, нижняя треть остаётся
+      // под текст. Затемнять окна градиентом до читаемости букв
+      // пришлось бы так сильно, что от дома ничего не осталось бы;
+      // проще развести их по кадру.
+      graphic('facade', '#FFFFFF', {
+        box: { x: 0, y: 0, w: FRAME.width, h: 1120 },
+        floors: opts.floors,
+        accent: theme.accent,
+        strength: 0.95,
+        seed: (opts.floors ?? 12) * 13 + opts.title.length,
+        z: 2,
+        // Дом «приближается» — кадр не стоит на месте в последнюю секунду.
+        drift: { y: -12, scale: 0.03 },
+        anim: { in: fadeIn(0, 18) },
       }),
-      // Блок центрирован по вертикали кадра и растёт в обе стороны —
-      // длинное название просто занимает больше строк.
+      // Плотная подложка под текстом: окна за буквами съедают читаемость,
+      // а финальный кадр — это прежде всего название и контакт.
+      gradient(
+        'rgba(12,15,20,0)',
+        'rgba(12,15,20,1)',
+        { x: 0, y: 800, w: FRAME.width, h: 320 },
+        180,
+      ),
+      rect({ x: 0, y: 1115, w: FRAME.width, h: FRAME.height - 1115 }, '#0C0F14', {
+        radius: 0,
+        z: 2,
+        anim: fadeIn(0, 6),
+      }),
+      // Текст прижат к низу и выровнен по левому краю — как во всех
+      // остальных сценах. Центрированный блок посреди пустого кадра
+      // был главной причиной, по которой финал смотрелся заглушкой.
       stack(
-        'top',
-        760,
+        'bottom',
+        1440,
         [
-          sText(opts.title, 'title', {
-            color: theme.accentText,
-            align: 'center',
-            size: 76,
-            anim: { in: fadeUp(8, 14, 36) },
+          // Акцентная черта живёт в текстовом блоке, а не отдельным
+          // слоем: иначе при смене высоты дома она оказывается поверх окон.
+          sRule(theme, 6, 132),
+          sText(opts.title, 'display', {
+            color: '#FFFFFF',
+            size: 82,
+            anim: { in: fadeUp(10, 16, 44) },
           }),
           opts.line
             ? sText(opts.line, 'subtitle', {
-                color: 'rgba(20,17,11,0.72)',
-                align: 'center',
-                anim: { in: fadeUp(12, 14, 28) },
+                color: 'rgba(255,255,255,0.66)',
+                anim: { in: fadeUp(15, 14, 30) },
               })
             : null,
           opts.cta
             ? sText(opts.cta, 'kicker', {
-                color: theme.accentText,
-                align: 'center',
+                color: theme.accent,
                 uppercase: true,
-                gapBefore: 14,
-                anim: { in: fadeIn(16, 12) },
+                size: 30,
+                weight: 700,
+                gapBefore: 18,
+                anim: { in: fadeIn(20, 12) },
               })
             : null,
         ],
-        { gap: 20 },
+        { gap: 16 },
       ),
     ],
-    { transition: { type: 'cut', dur: 0 }, background: theme.accent },
+    { transition: { type: 'cut', dur: 0 }, background: '#0C0F14' },
   );
+}
+
+/** `#E3C08A` + 0.3 → `rgba(227,192,138,0.3)`. Для подсветки фона. */
+export function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m?.[1]) return hex;
+  const n = Number.parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }

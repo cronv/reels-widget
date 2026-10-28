@@ -18,6 +18,7 @@ export {
   parseListing,
   parseListingHtml,
   isAllowedByRobots,
+  ScrapeError,
   type FetchOptions,
   type ParseReport,
 } from './adapters/scrape.js';

@@ -78,6 +78,26 @@ function selfOrigin(): string | null {
   }
 }
 
+/**
+ * Кому разрешено встраивать виджет в iframe.
+ *
+ * Заголовок формируется здесь, а не в конфиге nginx, намеренно: список
+ * доменов уже задан в ALLOWED_ORIGINS, и второе место, где то же самое
+ * пишется руками, однажды разойдётся с первым. Разошлось: в примере
+ * конфига остался чужой домен, и встраивание молча блокировалось —
+ * модальное окно открывалось пустым, без единой ошибки на странице.
+ *
+ * Если список пуст, ограничений нет: это режим разработки.
+ */
+export function frameAncestors(): string {
+  if (!config.allowedOrigins.length) return "frame-ancestors *";
+  const self = (() => {
+    try { return new URL(config.publicUrl).origin; } catch { return null; }
+  })();
+  const list = [...new Set([...(self ? [self] : []), ...config.allowedOrigins])];
+  return `frame-ancestors 'self' ${list.join(' ')}`;
+}
+
 /** Разрешено ли происхождение встраивать виджет и дёргать API. */
 function originAllowed(origin: string | undefined): string | null {
   if (!config.allowedOrigins.length) return origin ?? '*';
@@ -189,6 +209,11 @@ export async function serveStatic(
     'cache-control': opts.immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
     'accept-ranges': 'bytes',
   };
+  // Страницы виджета открываются в iframe на сайте-носителе, поэтому
+  // список разрешённых родителей едет вместе с самой страницей.
+  if (mime.startsWith('text/html')) {
+    headers['content-security-policy'] = frameAncestors();
+  }
 
   // Диапазонные запросы нужны, чтобы готовый MP4 можно было проматывать
   // прямо в <video> без полной загрузки.

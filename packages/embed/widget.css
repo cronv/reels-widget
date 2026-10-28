@@ -406,3 +406,16 @@ body.is-embedded { background: transparent; }
 .gate-card label { margin-bottom: 6px; }
 .gate-card .btn { margin-top: 18px; }
 .gate-card .note { margin-top: 12px; }
+
+/* ── заставка до старта скрипта ─────────────────────────────────────── */
+
+.boot {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.boot[hidden] { display: none; }
+.boot-card { max-width: 420px; text-align: center; }
+.boot-title { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+.boot-hint { font-size: 13px; color: var(--mute); margin-top: 8px; line-height: 1.5; }

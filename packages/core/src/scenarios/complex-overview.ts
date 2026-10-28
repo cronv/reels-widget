@@ -9,12 +9,17 @@ import {
   locationLine,
   metroLabel,
 } from '../format.js';
-import { FRAME } from '../theme.js';
+import { CONTENT_WIDTH, FRAME, MARGIN } from '../theme.js';
 import {
   bottomScrim,
   fadeIn,
   fadeUp,
   fullImage,
+  surface,
+  scaleIn,
+  panelImage,
+  hexToRgba,
+  graphic,
   outroScene,
   sChips,
   sCounter,
@@ -38,11 +43,13 @@ import {
  * бывают и в три слова, и в семь, и верстка не должна от этого ломаться.
  */
 export function buildComplexOverview(card: Card, theme: Theme, warnings: string[]): Timeline {
-  const renders = pickMedia(card, ['render', 'photo', 'progress'], 3);
+  // Пять кадров: три полноэкранных и два в сцене-галерее. Объект
+  // показывается с разных сторон, а не трижды одним ракурсом.
+  const renders = pickMedia(card, ['render', 'photo', 'progress'], 5);
   if (renders.length === 0) {
-    warnings.push('Нет ни одного рендера — сцены собраны на сплошном фоне.');
-  } else if (renders.length < 3) {
-    warnings.push(`Рендеров меньше трёх (${renders.length}) — кадры повторяются.`);
+    warnings.push('Нет ни одного изображения — сцены собраны на графическом фоне.');
+  } else if (renders.length < 5) {
+    warnings.push(`Изображений меньше пяти (${renders.length}) — часть кадров повторяется.`);
   }
 
   const img = (i: number): string | undefined =>
@@ -58,10 +65,12 @@ export function buildComplexOverview(card: Card, theme: Theme, warnings: string[
   /** Низ текстового блока: выше зоны, которую перекрывает интерфейс Reels. */
   const BASE = 1440;
 
-  const d1 = sec(3.0);
-  const d2 = sec(2.9);
-  const d3 = sec(2.9);
-  const d4 = sec(1.2);
+  // 2.5 + 2.1 + 2.0 + 2.0 + 1.4 = 10.0 с ровно
+  const d1 = sec(2.5);
+  const d2 = sec(2.1);
+  const dGallery = sec(2.0);
+  const d3 = sec(2.0);
+  const d4 = sec(1.4);
 
   const scenes: Scene[] = [];
   let at = 0;
@@ -104,7 +113,56 @@ export function buildComplexOverview(card: Card, theme: Theme, warnings: string[
   );
   at += d2;
 
-  // ── 3. Сколько стоит ─────────────────────────────────────────────────────
+  // ── 3. Галерея: объект с разных сторон ───────────────────────────────────
+  // Один крупный кадр и два поменьше. Коллаж показывает объём застройки
+  // за те же две секунды, которые ушли бы на ещё один общий план.
+  const GAP = 16;
+  const galleryTop = 380;
+  const bigH = 620;
+  const smallH = 300;
+  const halfW = (CONTENT_WIDTH - GAP) / 2;
+
+  scenes.push(
+    scene('gallery', at, dGallery, [
+      ...surface('#0C0F14', { glow: hexToRgba(theme.accent, 0.16), glowAt: [50, 20], noise: 0.05 }),
+      graphic('grid', '#FFFFFF', { strength: 0.05, step: 60, z: 1, anim: { in: fadeIn(0, 14) } }),
+      stack('top', 330, [sKicker('Как это выглядит', theme, 2)]),
+      img(2)
+        ? panelImage(img(2)!, { x: MARGIN, y: galleryTop, w: CONTENT_WIDTH, h: bigH }, {
+            radius: 22,
+            ken: true,
+            anim: scaleIn(4, 18),
+          })
+        : null,
+      img(3)
+        ? panelImage(img(3)!, { x: MARGIN, y: galleryTop + bigH + GAP, w: halfW, h: smallH }, {
+            radius: 22,
+            anim: fadeUp(10, 16, 32),
+          })
+        : null,
+      img(4)
+        ? panelImage(img(4)!, { x: MARGIN + halfW + GAP, y: galleryTop + bigH + GAP, w: halfW, h: smallH }, {
+            radius: 22,
+            anim: fadeUp(14, 16, 32),
+          })
+        : null,
+      // Снизу — то, ради чего смотрят дальше: срок и класс. Без этой
+      // строки под коллажем оставалась пустая треть кадра.
+      stack('bottom', 1430, [
+        completion || card.complex.segment
+          ? sText(
+              [card.complex.segment, completion].filter(Boolean).join('  ·  '),
+              'body',
+              { color: theme.textMuted, anim: { in: fadeUp(18, 14, 26) } },
+            )
+          : null,
+      ]),
+      card.complex.developer?.name ? watermark(card.complex.developer.name, theme) : null,
+    ]),
+  );
+  at += dGallery;
+
+  // ── 4. Сколько стоит ─────────────────────────────────────────────────────
   scenes.push(
     scene('price', at, d3, [
       img(2) ? fullImage(img(2)!, { ken: 'in', scrim: 0.52 }) : null,
@@ -136,6 +194,7 @@ export function buildComplexOverview(card: Card, theme: Theme, warnings: string[
   // ── 4. Куда идти ─────────────────────────────────────────────────────────
   scenes.push(
     outroScene(at, d4, theme, {
+      floors: card.complex.floorsTotal ?? card.lot?.floorsTotal,
       title: name,
       line: place || undefined,
       cta: card.contact?.site ?? card.contact?.phone ?? 'Подробности в описании',

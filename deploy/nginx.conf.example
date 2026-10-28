@@ -19,9 +19,13 @@ server {
 
     # ssl_certificate и ssl_certificate_key пропишет certbot
 
-    # Виджет открывается в iframe на сайте-носителе, поэтому запрет
-    # фреймов ставится адресно, а не через X-Frame-Options: DENY.
-    add_header Content-Security-Policy "frame-ancestors 'self' https://example.ru" always;
+    # Content-Security-Policy здесь намеренно НЕ задаётся.
+    #
+    # Виджет открывается в iframe на сайте-носителе, и список тех, кому
+    # это разрешено, сервис выставляет сам — из ALLOWED_ORIGINS. Если
+    # продублировать заголовок здесь, браузер применит оба и возьмёт
+    # пересечение: достаточно забыть поправить домен в одном месте,
+    # чтобы окно молча открывалось пустым. Один источник правды — .env.
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 

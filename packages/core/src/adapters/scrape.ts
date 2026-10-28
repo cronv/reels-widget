@@ -14,6 +14,20 @@ import { matchProfile, mergeRaw, type SiteProfile } from './profiles.js';
 
 const UA = 'ReelsWidget/1.0';
 
+/**
+ * Ошибка загрузки страницы, в которой виноват не сервер.
+ *
+ * Нужна, чтобы отличать «сайт нас не пустил» от настоящего сбоя: без
+ * этого запрет robots.txt уходил клиенту как 500 и ложился в логи
+ * внутренней ошибкой, хотя чинить там нечего — это ожидаемый ответ.
+ */
+export class ScrapeError extends Error {
+  constructor(message: string, public status = 422) {
+    super(message);
+    this.name = 'ScrapeError';
+  }
+}
+
 export interface FetchOptions {
   timeoutMs?: number;
   userAgent?: string;
@@ -59,15 +73,15 @@ export async function fetchHtml(target: string, opts: FetchOptions = {}): Promis
   const doFetch = opts.fetchImpl ?? fetch;
   const url = new URL(target);
   if (!/^https?:$/.test(url.protocol)) {
-    throw new Error('Поддерживаются только http и https-ссылки.');
+    throw new ScrapeError('Поддерживаются только http и https-ссылки.', 400);
   }
   if (opts.respectRobots !== false) {
     const allowed = await isAllowedByRobots(target, opts);
     if (!allowed) {
-      throw new Error(
+      throw new ScrapeError(
         `robots.txt сайта ${url.hostname} запрещает автоматическую загрузку этой страницы. ` +
-          'Если сайт ваш — поправьте robots.txt или добавьте домен ' +
-          'в SCRAPE_TRUSTED_HOSTS.',
+          'Если сайт ваш — добавьте домен в SCRAPE_TRUSTED_HOSTS и перезапустите сервис ' +
+          '(docker compose … up -d), либо поправьте robots.txt на самом сайте.',
       );
     }
   }
@@ -80,9 +94,9 @@ export async function fetchHtml(target: string, opts: FetchOptions = {}): Promis
     signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
     redirect: 'follow',
   });
-  if (!res.ok) throw new Error(`Страница ответила ${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ScrapeError(`Страница ответила ${res.status} ${res.statusText}`, 502);
   const type = res.headers.get('content-type') ?? '';
-  if (!/html/i.test(type)) throw new Error(`Ожидался HTML, пришло «${type}»`);
+  if (!/html/i.test(type)) throw new ScrapeError(`Ожидался HTML, пришло «${type}»`);
   return res.text();
 }
 
