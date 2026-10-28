@@ -27,9 +27,14 @@ export interface Job {
   finishedAt?: number;
   error?: string;
   result?: {
+    /** Путь относительно адреса сервиса — его и использует виджет. */
+    videoPath: string;
+    posterPath: string;
     videoUrl: string;
     posterUrl: string;
     fileName: string;
+    /** Человекочитаемое имя для сохранённого файла. */
+    downloadName: string;
     bytes: number;
     frames: number;
     seconds: number;
@@ -132,9 +137,23 @@ async function run(item: QueueItem): Promise<void> {
     job.progress = 1;
     job.finishedAt = Date.now();
     job.result = {
+      /**
+       * Пути относительные, а не абсолютные.
+       *
+       * Раньше ссылка собиралась из PUBLIC_URL, и стоило его не
+       * заполнить — она вела на `http://localhost:4000`, то есть
+       * никуда. Превью при этом работало (оно ходит по адресу, с
+       * которого загружено), и поломка вылезала только на кнопке
+       * «Скачать». Виджет знает собственный адрес точно, поэтому
+       * пусть он и подставляет его сам.
+       */
+      videoPath: `/files/${path.basename(videoPath)}`,
+      posterPath: `/files/${path.basename(posterPath)}`,
+      // Абсолютные адреса остаются для тех, кто зовёт API снаружи.
       videoUrl: `${config.publicUrl}/files/${path.basename(videoPath)}`,
       posterUrl: `${config.publicUrl}/files/${path.basename(posterPath)}`,
       fileName: path.basename(videoPath),
+      downloadName: downloadName(timeline),
       bytes: result.bytes,
       frames: result.frames,
       seconds: Math.round((result.frames / timeline.fps) * 10) / 10,
@@ -176,4 +195,29 @@ async function prune(): Promise<void> {
 
 export function queueStats(): { active: number; waiting: number } {
   return { active, waiting: queue.length };
+}
+
+/**
+ * Имя, под которым ролик сохранится у менеджера.
+ *
+ * Внутреннее имя файла содержит хеш и метку времени — оно нужно, чтобы
+ * файлы не перетирали друг друга, но в папке «Загрузки» такое имя
+ * бесполезно. Здесь собирается читаемое: объект и сценарий.
+ */
+function downloadName(timeline: Timeline): string {
+  const scenario: Record<string, string> = {
+    'complex-overview': 'обзор ЖК',
+    'lot-plan': 'лот с планировкой',
+    promo: 'акция',
+    progress: 'ход строительства',
+  };
+  const title = (timeline.caption ?? '').split('·')[0]?.trim() || timeline.cardId;
+  const label = scenario[timeline.scenario] ?? timeline.scenario;
+  return `${title} — ${label}.mp4`
+    // Кавычки-ёлочки в имени файла читаются как мусор, а часть
+    // символов запрещена в именах на Windows и macOS.
+    .replace(/[«»"']/g, '')
+    .replace(/[\\/:*?<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

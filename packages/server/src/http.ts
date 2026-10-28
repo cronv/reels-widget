@@ -46,6 +46,41 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
+const TRANSLIT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i',
+  й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+  у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '',
+  э: 'e', ю: 'yu', я: 'ya',
+};
+
+/**
+ * Запасное имя файла латиницей.
+ *
+ * В заголовке Content-Disposition имя указывается дважды: в UTF-8 по
+ * RFC 5987 и в ASCII для клиентов, которые первого не понимают.
+ * Заменять кириллицу подчёркиваниями нельзя — Chrome получает строку
+ * из одних «_», не может вывести осмысленное имя и сохраняет файл
+ * как «download». Транслитерация оставляет имя читаемым в любом случае.
+ */
+export function asciiFileName(name: string): string {
+  const body = name
+    .split('')
+    .map((ch) => {
+      const lower = ch.toLowerCase();
+      const mapped = TRANSLIT[lower];
+      if (mapped === undefined) return ch;
+      return ch === lower ? mapped : mapped.charAt(0).toUpperCase() + mapped.slice(1);
+    })
+    .join('')
+    // Кавычки и управляющие символы ломают разбор заголовка.
+    .replace(/[^\x20-\x7E]/g, '-')
+    .replace(/["\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
+    .trim();
+  return body || 'reel.mp4';
+}
+
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -189,7 +224,7 @@ export async function serveStatic(
   res: ServerResponse,
   baseDir: string,
   relative: string,
-  opts: { immutable?: boolean; range?: string } = {},
+  opts: { immutable?: boolean; range?: string; downloadAs?: string } = {},
 ): Promise<boolean> {
   const clean = path.normalize(relative).replace(/^(\.\.[/\\])+/, '');
   const full = path.join(baseDir, clean);
@@ -213,6 +248,22 @@ export async function serveStatic(
   // список разрешённых родителей едет вместе с самой страницей.
   if (mime.startsWith('text/html')) {
     headers['content-security-policy'] = frameAncestors();
+  }
+
+  /**
+   * Явное указание скачать файл.
+   *
+   * Одного атрибута `download` у ссылки мало: браузер игнорирует его
+   * в части случаев и открывает видео вместо сохранения, а внутри
+   * встроенного фрейма это выглядит так, будто кнопка не работает.
+   * Заголовок снимает неоднозначность. Имя передаётся дважды: в ASCII
+   * для старых клиентов и в UTF-8 по RFC 5987 — иначе русское название
+   * объекта превратится в мусор.
+   */
+  if (opts.downloadAs) {
+    headers['content-disposition'] =
+      `attachment; filename="${asciiFileName(opts.downloadAs)}"; ` +
+      `filename*=UTF-8''${encodeURIComponent(opts.downloadAs)}`;
   }
 
   // Диапазонные запросы нужны, чтобы готовый MP4 можно было проматывать

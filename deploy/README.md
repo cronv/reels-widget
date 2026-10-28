@@ -230,6 +230,7 @@ docker compose -f deploy/docker-compose.yml exec reels \
 | Рендер падает | `docker compose … logs`; чаще всего не хватает памяти, поднимите `mem_limit` или снизьте `RENDER_CONCURRENCY` |
 | Контейнер перезапускается | `docker inspect reels-widget --format '{{.State.OOMKilled}}'`; `true` — упёрлись в память |
 | Кадры пустые | картинки объекта недоступны снаружи или закрыт хотлинк по Referer |
+| Не скачивается готовый ролик | проверьте `curl -sI <адрес>/files/<имя>.mp4` — должен быть код 200. Ссылка на файл строится от адреса виджета, так что незаполненный `PUBLIC_URL` на это больше не влияет |
 
 ---
 

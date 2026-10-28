@@ -809,10 +809,18 @@
     var actions = document.createElement('div');
     actions.className = 'done-actions';
 
+    // Адрес собирается от API, а не берётся из ответа: сервер может
+    // не знать своего внешнего адреса, а виджет знает точно — он с
+    // него и загрузился. Параметр download заставляет браузер
+    // сохранить файл, а не открыть видео во вкладке.
+    var href = API + (r.videoPath || '/files/' + r.fileName) +
+      '?download=' + encodeURIComponent(r.downloadName || r.fileName);
+
     var download = document.createElement('a');
     download.className = 'btn';
-    download.href = r.videoUrl;
-    download.download = r.fileName;
+    download.href = href;
+    download.download = r.downloadName || r.fileName;
+    download.rel = 'noopener';
     download.textContent = 'Скачать MP4';
     actions.appendChild(download);
 
@@ -905,6 +913,12 @@
       }
     });
   })();
+
+  // Точка входа для автоматической проверки доставки файла: позволяет
+  // показать готовый результат, не прогоняя рендер заново.
+  window.__showDone = function (result) {
+    showDone({ result: result, scenario: state.selected });
+  };
 
   // Сообщаем носителю, какой высоты получился виджет.
   function reportHeight() {

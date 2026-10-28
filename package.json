@@ -21,7 +21,8 @@
     "docker:up": "docker compose -f deploy/docker-compose.yml up -d",
     "docker:smoke": "docker compose -f deploy/docker-compose.yml run --rm --no-deps reels npm run smoke",
     "verify": "node scripts/verify-env.mjs",
-    "sparse": "node scripts/sparse-check.mjs"
+    "sparse": "node scripts/sparse-check.mjs",
+    "download-check": "node scripts/download-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

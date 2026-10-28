@@ -21,9 +21,12 @@ const server = http.createServer(async (req, res) => {
       if (ok) return;
     }
     if (url.pathname.startsWith('/files/')) {
+      // ?download=Имя+файла.mp4 — отдать как вложение с этим именем.
+      const downloadAs = url.searchParams.get('download') || undefined;
       const ok = await serveStatic(res, config.paths.output, url.pathname.slice('/files/'.length), {
         immutable: true,
         range: req.headers.range,
+        downloadAs,
       });
       if (ok) return;
     }
