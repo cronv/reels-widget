@@ -133,22 +133,83 @@ export function frameAncestors(): string {
   return `frame-ancestors 'self' ${list.join(' ')}`;
 }
 
+/**
+ * Совпадает ли происхождение с записью списка.
+ *
+ * Поддерживается шаблон `https://*.domain.ru`. Без него платформа,
+ * где у каждого ЖК свой поддомен, требовала бы дописывать в настройки
+ * каждый новый объект — и виджет молча переставал бы работать на нём
+ * до того момента, пока кто-нибудь это не заметит.
+ *
+ * Звёздочка заменяет ровно одну или несколько меток слева и не
+ * покрывает сам домен: `*.example.ru` не пропустит `example.ru`,
+ * чтобы правило нельзя было прочитать шире, чем оно написано.
+ */
+function originMatches(origin: string, pattern: string): boolean {
+  if (origin === pattern) return true;
+  if (!pattern.includes('*')) return false;
+
+  const [patternScheme, patternHost] = pattern.split('://');
+  if (!patternScheme || !patternHost) return false;
+
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
+  }
+  // protocol возвращается с двоеточием: «https:».
+  if (originUrl.protocol !== `${patternScheme}:`) return false;
+
+  const suffix = patternHost.replace(/^\*\./, '');
+  const host = originUrl.host;
+  return host.endsWith(`.${suffix}`) && host.length > suffix.length + 1;
+}
+
+/** Открыто для проверки: разбор шаблонов легко испортить незаметно. */
+export const __originMatches = originMatches;
+
+/**
+ * Пустит ли сервис этот домен к себе в iframe.
+ *
+ * То же решение, что принимает CSP и проверка CORS, но в виде ответа
+ * на вопрос — чтобы загрузчик мог сказать, в чём дело, а не гадать.
+ */
+export function embedAllowed(origin: string): boolean {
+  if (!config.allowedOrigins.length) return true;
+  if (origin === selfOrigin()) return true;
+  return config.allowedOrigins.some((p) => originMatches(origin, p));
+}
+
 /** Разрешено ли происхождение встраивать виджет и дёргать API. */
 function originAllowed(origin: string | undefined): string | null {
   if (!config.allowedOrigins.length) return origin ?? '*';
   if (!origin) return null;
   if (origin === selfOrigin()) return origin;
-  return config.allowedOrigins.includes(origin) ? origin : null;
+  return config.allowedOrigins.some((p) => originMatches(origin, p)) ? origin : null;
 }
 
-export function applyCors(req: IncomingMessage, res: ServerResponse): boolean {
+/**
+ * Адреса, открытые любому домену.
+ *
+ * `/api/embed/check` отвечает на вопрос «пускаете ли вы меня?» — и если
+ * закрыть его тем же правилом, он будет молчать ровно в том случае,
+ * ради которого написан. Запрещённый домен получал вместо ответа 403,
+ * загрузчик видел неудачный запрос и сообщал «сервис не отвечает», хотя
+ * сервис работал и просто не пускал этот домен. Диагностика обязана
+ * пережить тот отказ, который диагностирует.
+ */
+const OPEN_TO_ANY_ORIGIN = new Set(['/api/embed/check', '/health']);
+
+export function applyCors(req: IncomingMessage, res: ServerResponse, pathname?: string): boolean {
   const origin = req.headers.origin;
   const allowed = originAllowed(origin);
-  if (origin && allowed === null) {
+  const diagnostic = pathname != null && OPEN_TO_ANY_ORIGIN.has(pathname);
+  if (origin && allowed === null && !diagnostic) {
     json(res, 403, { error: 'Этому домену не разрешено обращаться к виджету.' });
     return false;
   }
-  res.setHeader('access-control-allow-origin', allowed ?? '*');
+  res.setHeader('access-control-allow-origin', (diagnostic ? origin : allowed) ?? '*');
   res.setHeader('vary', 'origin');
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
   res.setHeader('access-control-allow-headers', 'content-type');

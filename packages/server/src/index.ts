@@ -13,7 +13,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
   try {
-    if (!applyCors(req, res)) return;
+    if (!applyCors(req, res, url.pathname)) return;
 
     // ── статика ───────────────────────────────────────────────────────────
     if (url.pathname.startsWith('/stage/')) {

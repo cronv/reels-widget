@@ -33,7 +33,14 @@ if (!compiled) {
 
 await fs.mkdir(DIST, { recursive: true });
 
-const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+/**
+ * В имени есть и час с минутами, а не только дата.
+ *
+ * За день архив пересобирается не раз, и два файла с одинаковым именем
+ * уже приводили к вопросу «какой из них верный?». Со временем в имени
+ * свежий виден сразу, и старый не затирается молча.
+ */
+const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
 const name = `reels-widget-${stamp}.tar.gz`;
 const out = path.join(DIST, name);
 

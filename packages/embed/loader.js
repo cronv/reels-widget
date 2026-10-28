@@ -203,18 +203,50 @@
    * Браузер блокирует встраивание по Content-Security-Policy молча:
    * на странице-носителе не возникает ни ошибки, ни события, и окно
    * просто остаётся белым. Единственный доступный признак — фрейм
-   * не прислал ни одного сообщения; об этом и говорим прямым текстом.
+   * не прислал ни одного сообщения.
+   *
+   * Дальше раньше начинались догадки: сообщение советовало добавить
+   * домен в список, даже когда домен там уже был, а виной была,
+   * например, остановленная служба. Теперь ответ спрашивается у
+   * самого сервиса — он один знает свой список и свою доступность.
    */
   function watchFrame() {
     clearTimeout(frameWatch);
     frameWatch = setTimeout(function () {
       if (frameAlive || overlay.hidden) return;
       notice.hidden = false;
-      notice.textContent =
-        'Виджет не загрузился. Чаще всего это значит, что сервис запрещает ' +
-        'встраивание на этот домен: добавьте ' + location.origin +
-        ' в ALLOWED_ORIGINS и перезапустите сервис. Подробности — в консоли браузера.';
+      notice.textContent = 'Виджет не загрузился, выясняю причину…';
+      diagnose().then(function (text) {
+        if (frameAlive || overlay.hidden) return;
+        notice.textContent = text;
+      });
     }, 6000);
+  }
+
+  /** Спрашивает у сервиса, в чём дело, и переводит ответ на русский. */
+  function diagnose() {
+    var here = location.origin;
+    return fetch(api + '/api/embed/check?origin=' + encodeURIComponent(here), { mode: 'cors' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function (d) {
+        if (d.allowed === false) {
+          return 'Сервису не разрешено показывать виджет на домене ' + here +
+            '. Добавьте его в ALLOWED_ORIGINS и перезапустите сервис. ' +
+            'Сейчас в списке: ' + (d.allowedOrigins.join(', ') || '— пусто —') + '.';
+        }
+        if (d.publicUrl && d.publicUrl.indexOf('localhost') >= 0) {
+          return 'Домен ' + here + ' разрешён, но у сервиса не заполнен PUBLIC_URL ' +
+            '(сейчас ' + d.publicUrl + '). Укажите внешний адрес сервиса и перезапустите его.';
+        }
+        return 'Домен ' + here + ' разрешён, и сервис отвечает — значит, встраивание ' +
+          'блокирует что-то на стороне сайта: заголовок Content-Security-Policy в ' +
+          'конфиге nginx или расширение в браузере. Подробности — в консоли.';
+      })
+      .catch(function () {
+        // Сам запрос не прошёл: до сервиса не добраться ни фрейму, ни коду.
+        return 'Сервис ' + api + ' не отвечает. Проверьте, что он запущен и доступен ' +
+          'по https, а домен сайта указан в ALLOWED_ORIGINS.';
+      });
   }
 
   function open() {
@@ -267,6 +299,13 @@
     frameAlive = true;
     clearTimeout(frameWatch);
     notice.hidden = true;
+    // Фрейм живёт на чужом домене, и снаружи в него не заглянуть:
+    // для страницы-носителя это единственный видимый признак того,
+    // что виджет действительно загрузился. На нём же держится
+    // автопроверка встраивания — иначе ей пришлось бы различать
+    // «пусто, потому что заблокировано» и «пусто, потому что чужой
+    // домен не читается», а это одно и то же на вид.
+    host.setAttribute('data-reels-ready', '1');
     if (msg.type === 'close') close();
   });
 

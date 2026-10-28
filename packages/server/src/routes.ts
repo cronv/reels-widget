@@ -12,7 +12,7 @@ import {
   FIELD_LABELS,
 } from '@reels/core';
 import { config } from './config.js';
-import { HttpError, Router, json, readBody } from './http.js';
+import { HttpError, Router, embedAllowed, json, readBody } from './http.js';
 import { enqueue, getJob, listJobs, queueStats } from './jobs.js';
 import { authEnabled, checkPassword, isAuthorized, issueToken } from './auth.js';
 import { clientIp, hit, reset } from './ratelimit.js';
@@ -156,6 +156,30 @@ export function buildRouter(): Router {
       token: issueToken(),
       expiresIn: config.auth.sessionTtlSeconds,
       required: true,
+    });
+  });
+
+  /**
+   * Разрешено ли этому домену встраивать виджет.
+   *
+   * Браузер блокирует iframe по Content-Security-Policy молча: на
+   * странице-носителе нет ни ошибки, ни события, окно просто остаётся
+   * белым. До сих пор кнопка могла только предполагать причину, и
+   * предположение приходилось проверять руками в конфиге сервера.
+   * Этот ответ превращает догадку в факт: спрашивает загрузчик, а
+   * отвечает тот самый сервис, который и решает, пускать или нет.
+   *
+   * Эндпоинт открыт намеренно — он нужен до входа, и ничего, кроме
+   * списка доменов, не сообщает, а список и так виден в заголовке CSP.
+   */
+  router.get('/api/embed/check', ({ req, res, url }) => {
+    const origin = url.searchParams.get('origin') ?? req.headers.origin ?? null;
+    json(res, 200, {
+      origin,
+      allowed: origin ? embedAllowed(origin) : null,
+      restricted: config.allowedOrigins.length > 0,
+      allowedOrigins: config.allowedOrigins,
+      publicUrl: config.publicUrl,
     });
   });
 
