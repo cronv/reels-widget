@@ -42,7 +42,14 @@ SCRAPE_TRUSTED_HOSTS=domain.ru
 
 SCRAPE_RESPECT_ROBOTS=true
 SCRAPE_ALLOW_PRIVATE=false
-RENDER_CONCURRENCY=2
+
+# Один ролик за раз, но кадры к нему снимают два процесса.
+# Памяти уходит столько же, сколько раньше при двух роликах сразу,
+# а ждать менеджеру вдвое меньше. Если в .env осталось
+# RENDER_CONCURRENCY=2 — поменяйте на 1, иначе процессов станет
+# вчетверо больше и сервер упрётся в память.
+RENDER_CONCURRENCY=1
+RENDER_WORKERS=2
 ```
 
 Секрет сгенерировать:

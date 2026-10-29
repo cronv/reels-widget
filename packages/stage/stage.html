@@ -101,8 +101,14 @@
         fit();
         // seq возвращается нетронутым: виджет по нему отличает ответ
         // текущего монтирования от ответа предыдущего.
+        // Прогрев идёт до сигнала «готово»: пока виджет показывает
+        // ожидание, браузер успевает нарисовать все сцены, и переходы
+        // между ними перестают спотыкаться. На экспорт это не влияет —
+        // там кадры снимаются по одному и прогревать нечего.
         stage.waitAssets(15000).then(function (report) {
-          post('ready', { seq: data.seq, duration: stage.timeline.durationInFrames, assets: report });
+          return stage.warm().then(function () {
+            post('ready', { seq: data.seq, duration: stage.timeline.durationInFrames, assets: report });
+          });
         });
         break;
       case 'play': stage.play(data.frame); break;

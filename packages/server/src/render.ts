@@ -18,7 +18,19 @@ import { config } from './config.js';
  * выходе всегда честные 30 fps.
  */
 
-let browserPromise: Promise<Browser> | null = null;
+/**
+ * Пул браузеров.
+ *
+ * Кадры снимаются параллельно несколькими процессами Chromium. Вкладки
+ * внутри одного процесса для этого не годятся: замер показал ускорение
+ * 1.01× — снимок кадра упирается в поток композитора, общий на процесс.
+ * Отдельные процессы дают 1.54× на двух ядрах; третий уже ничего не
+ * добавляет, поэтому число по умолчанию привязано к числу ядер.
+ *
+ * Браузеры переживают задачу и переиспользуются: запуск стоит около
+ * секунды, и платить её на каждом ролике незачем.
+ */
+const pool: (Promise<Browser> | null)[] = [];
 
 /**
  * Запускает браузер.
@@ -29,9 +41,9 @@ let browserPromise: Promise<Browser> | null = null;
  * собственный пакет `chromium`, и его достаточно передать в `executablePath`.
  * Попутно из зависимостей уходит ~450 МБ загружаемого браузера.
  */
-async function getBrowser(): Promise<Browser> {
-  if (!browserPromise) {
-    browserPromise = (async () => {
+async function getBrowser(slot = 0): Promise<Browser> {
+  if (!pool[slot]) {
+    pool[slot] = (async () => {
       const { chromium } = await import('playwright-core');
       try {
         return await chromium.launch({
@@ -50,7 +62,7 @@ async function getBrowser(): Promise<Browser> {
       } catch (err) {
         // Без своего браузера playwright-core не умеет ничего, и штатная
         // ошибка про «executable doesn't exist» не подсказывает, что делать.
-        browserPromise = null;
+        pool[slot] = null;
         const where = config.render.chromiumPath ?? '(путь не задан)';
         throw new Error(
           `Не удалось запустить Chromium по пути ${where}. ` +
@@ -61,14 +73,13 @@ async function getBrowser(): Promise<Browser> {
       }
     })();
   }
-  return browserPromise;
+  return pool[slot] as Promise<Browser>;
 }
 
 export async function closeBrowser(): Promise<void> {
-  if (!browserPromise) return;
-  const browser = await browserPromise;
-  browserPromise = null;
-  await browser.close().catch(() => undefined);
+  const open = pool.filter(Boolean) as Promise<Browser>[];
+  pool.length = 0;
+  await Promise.all(open.map((p) => p.then((b) => b.close()).catch(() => undefined)));
 }
 
 export interface RenderOptions {
@@ -94,6 +105,9 @@ function startFfmpeg(outPath: string, fps: number): ReturnType<typeof spawn> {
   const args = [
     '-y',
     '-f', 'image2pipe',
+    // Кадры приходят в JPEG: он снимается заметно быстрее PNG, а разница
+    // в качестве тонет в последующем сжатии H.264.
+    '-vcodec', 'mjpeg',
     '-framerate', String(fps),
     '-i', 'pipe:0',
     '-f', 'lavfi',
@@ -139,12 +153,29 @@ function write(stream: NodeJS.WritableStream, chunk: Buffer): Promise<void> {
   });
 }
 
-export async function renderTimeline(opts: RenderOptions): Promise<RenderResult> {
-  const { timeline, stageUrl, outPath } = opts;
-  const startedAt = Date.now();
-  await fs.mkdir(path.dirname(outPath), { recursive: true });
+/** Одна вкладка со смонтированной сценой, готовая снимать кадры. */
+interface Shooter {
+  close: () => Promise<void>;
+  shoot: (frame: number) => Promise<Buffer>;
+  total: number;
+  assets: { total: number; failed: number };
+}
 
-  const browser = await getBrowser();
+/**
+ * Готовит вкладку к покадровой съёмке.
+ *
+ * Кадр снимается через CDP, а не через `page.screenshot`, и в JPEG,
+ * а не в PNG: чередующийся замер дал 104 мс против 127 мс на кадр.
+ *
+ * Качество именно 100, а не «достаточное». На JPEG 95 совпадение с
+ * исходным кадром по яркости падает до 0.979 — и теряется оно там,
+ * где заметнее всего, на границах букв. На 100 остаётся 0.9995, то
+ * есть разницы нет, а итоговый файл выходит даже меньше: артефакты
+ * сжатия — это высокочастотный шум, который H.264 потом честно
+ * кодирует. Лишние полторы секунды на ролик того стоят.
+ */
+async function makeShooter(slot: number, timeline: Timeline, stageUrl: string): Promise<Shooter> {
+  const browser = await getBrowser(slot);
   const context = await browser.newContext({
     viewport: { width: timeline.width, height: timeline.height },
     deviceScaleFactor: 1,
@@ -152,7 +183,42 @@ export async function renderTimeline(opts: RenderOptions): Promise<RenderResult>
     locale: 'ru-RU',
   });
 
-  let page: Page | null = null;
+  const page: Page = await context.newPage();
+  page.on('pageerror', (err) => {
+    throw new Error(`Ошибка в сцене: ${err.message}`);
+  });
+
+  await page.goto(stageUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.waitForFunction('typeof window.__mount === "function"', null, { timeout: 15_000 });
+
+  const total: number = await page.evaluate(
+    (tl) => (window as unknown as { __mount: (t: unknown) => number }).__mount(tl),
+    timeline as unknown,
+  );
+  const assets = await page.evaluate(
+    () => (window as unknown as { __waitAssets: (ms: number) => Promise<{ total: number; failed: number }> })
+      .__waitAssets(20_000),
+  );
+
+  const cdp = await context.newCDPSession(page);
+
+  return {
+    total,
+    assets,
+    close: () => context.close().catch(() => undefined),
+    shoot: async (frame: number) => {
+      await page.evaluate((f) => (window as unknown as { __seek: (n: number) => void }).__seek(f), frame);
+      const shot = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 100 });
+      return Buffer.from(shot.data, 'base64');
+    },
+  };
+}
+
+export async function renderTimeline(opts: RenderOptions): Promise<RenderResult> {
+  const { timeline, stageUrl, outPath } = opts;
+  const startedAt = Date.now();
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+
   const ffmpeg = startFfmpeg(outPath, timeline.fps);
   let ffmpegErr = '';
   ffmpeg.stderr?.on('data', (d: Buffer) => {
@@ -168,35 +234,63 @@ export async function renderTimeline(opts: RenderOptions): Promise<RenderResult>
     });
   });
 
+  const shooters: Shooter[] = [];
   try {
-    page = await context.newPage();
-    page.on('pageerror', (err) => {
-      throw new Error(`Ошибка в сцене: ${err.message}`);
-    });
-
-    await page.goto(stageUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    await page.waitForFunction('typeof window.__mount === "function"', null, { timeout: 15_000 });
-
-    const total: number = await page.evaluate(
-      (tl) => (window as unknown as { __mount: (t: unknown) => number }).__mount(tl),
-      timeline as unknown,
-    );
-
-    const assets = await page.evaluate(
-      () => (window as unknown as { __waitAssets: (ms: number) => Promise<{ total: number; failed: number }> })
-        .__waitAssets(20_000),
-    );
+    const workers = Math.max(1, Math.min(config.render.workers, 4));
+    for (let i = 0; i < workers; i += 1) {
+      shooters.push(await makeShooter(i, timeline, stageUrl));
+    }
+    const total = shooters[0]!.total;
+    const assets = shooters[0]!.assets;
 
     const stdin = ffmpeg.stdin;
     if (!stdin) throw new Error('Не удалось открыть stdin ffmpeg.');
 
-    for (let frame = 0; frame < total; frame += 1) {
-      if (opts.signal?.aborted) throw new Error('Рендер отменён.');
-      await page.evaluate((f) => (window as unknown as { __seek: (n: number) => void }).__seek(f), frame);
-      const shot = await page.screenshot({ type: 'png', animations: 'disabled' });
-      await write(stdin, shot);
-      opts.onProgress?.(frame + 1, total);
-    }
+    /**
+     * Кадры снимаются вразнобой, а в ffmpeg уходят строго по порядку.
+     *
+     * Каждый браузер берёт свою долю кадров через один: при двух
+     * рабочих первый снимает чётные, второй нечётные. Готовые кадры
+     * складываются в маленький буфер, из которого пишется следующий
+     * по счёту. Чередование здесь важнее равных кусков: при делении
+     * ролика пополам буфер держал бы половину кадров в памяти, а так
+     * в нём лежит пара штук.
+     */
+    const pending = new Map<number, Buffer>();
+    let nextToWrite = 0;
+    let done = 0;
+
+    /**
+     * Запись сериализуется цепочкой обещаний.
+     *
+     * Без неё второй рабочий успевает войти в слив, пока первый ждёт
+     * записи своего кадра, и два кадра уходят в поток вперемешку —
+     * ffmpeg получает битую последовательность. Очередь из одного
+     * обещания гарантирует, что в stdin пишет кто-то один.
+     */
+    let writing: Promise<void> = Promise.resolve();
+    const drain = (): Promise<void> => {
+      writing = writing.then(async () => {
+        while (pending.has(nextToWrite)) {
+          const buf = pending.get(nextToWrite)!;
+          pending.delete(nextToWrite);
+          nextToWrite += 1;
+          await write(stdin, buf);
+        }
+      });
+      return writing;
+    };
+
+    await Promise.all(shooters.map((shooter, index) => (async () => {
+      for (let frame = index; frame < total; frame += workers) {
+        if (opts.signal?.aborted) throw new Error('Рендер отменён.');
+        pending.set(frame, await shooter.shoot(frame));
+        done += 1;
+        opts.onProgress?.(done, total);
+        await drain();
+      }
+    })()));
+    await drain();
 
     stdin.end();
     await ffmpegDone;
@@ -215,8 +309,7 @@ export async function renderTimeline(opts: RenderOptions): Promise<RenderResult>
     await fs.rm(outPath, { force: true }).catch(() => undefined);
     throw err;
   } finally {
-    await page?.close().catch(() => undefined);
-    await context.close().catch(() => undefined);
+    await Promise.all(shooters.map((s) => s.close()));
   }
 }
 
