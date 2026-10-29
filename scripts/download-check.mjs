@@ -1,16 +1,19 @@
 /**
- * Сквозная проверка скачивания готового ролика.
+ * Сквозная проверка: от пароля до сохранённого файла.
  *
  *   npm run download-check
  *
  * Поднимает сервис и отдельный «сайт застройщика» на другом порту,
- * встраивает виджет, проходит весь путь до кнопки «Скачать MP4»
- * и убеждается, что файл действительно сохранился и не повреждён.
+ * встраивает виджет и проходит весь путь руками браузера: вход по
+ * паролю, ввод объекта, выбор сценария, экспорт, ожидание рендера,
+ * нажатие «Скачать MP4» — и проверяет, что файл сохранился целиком.
  *
- * Проверка живёт отдельно от общего прогона, потому что ломается
- * здесь не рендер, а доставка: абсолютная ссылка на файл строилась
- * из PUBLIC_URL, и при незаполненной настройке вела в никуда —
- * ролик собирался, но скачать его было нельзя.
+ * Пароль здесь включён намеренно. Раньше проверка работала с открытым
+ * API, и из-за этого пропустила поломку, которая ломала весь экспорт
+ * в рабочей установке: опрос задачи ходил без токена, получал 401 и
+ * молча замолкал. Ролик собирался, но виджет об этом не узнавал и
+ * навсегда оставался в состоянии «Ставлю в очередь…». Проверка, не
+ * повторяющая боевые настройки, такую поломку увидеть не может.
  */
 
 import http from 'node:http';
@@ -23,6 +26,7 @@ import { chromium } from 'playwright-core';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const APP = Number(process.env.DL_PORT ?? 4451);
 const SITE = APP + 1;
+const PASSWORD = 'проверка-пароля';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let failures = 0;
@@ -32,7 +36,7 @@ const check = (label, ok, extra = '') => {
 };
 
 // PUBLIC_URL намеренно не задан: именно так выглядит забытая настройка,
-// на которой ломалось скачивание.
+// на которой когда-то ломалось скачивание.
 const srv = spawn(process.execPath, [path.join(ROOT, 'packages/server/dist/index.js')], {
   cwd: ROOT,
   env: {
@@ -40,6 +44,8 @@ const srv = spawn(process.execPath, [path.join(ROOT, 'packages/server/dist/index
     PORT: String(APP),
     OUTPUT_DIR: path.join(ROOT, '.output'),
     ALLOWED_ORIGINS: `http://127.0.0.1:${SITE}`,
+    ACCESS_PASSWORD: PASSWORD,
+    AUTH_SECRET: 'proverka-sekreta-dlya-testa-0123456789',
     SCRAPE_ALLOW_PRIVATE: 'true',
   },
   stdio: ['ignore', 'ignore', 'inherit'],
@@ -48,9 +54,9 @@ const srv = spawn(process.execPath, [path.join(ROOT, 'packages/server/dist/index
 const site = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(
-    `<!doctype html><meta charset="utf-8"><body><h1>Сайт ЖК</h1>` +
+    `<!doctype html><meta charset="utf-8"><title>Сайт ЖК</title><body><h1>Сайт ЖК</h1>` +
     `<script src="http://127.0.0.1:${APP}/loader.js" data-reels-widget ` +
-    `data-api="http://127.0.0.1:${APP}"></script>`,
+    `data-autoparse="false" data-api="http://127.0.0.1:${APP}"></script>`,
   );
 });
 
@@ -61,77 +67,97 @@ try {
   }
   await new Promise((r) => site.listen(SITE, r));
 
-  console.log('\nРендер ролика');
+  const browser = await chromium.launch({
+    executablePath: process.env.CHROMIUM_PATH,
+    args: ['--no-sandbox'],
+  });
+  const ctx = await browser.newContext({ acceptDownloads: true });
+  const page = await ctx.newPage();
+
+  console.log('\nОткрываю виджет на сайте');
+  await page.goto(`http://127.0.0.1:${SITE}/`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(
+    () => document.getElementById('reels-widget-host')?.shadowRoot?.querySelector('.launcher'),
+    null, { timeout: 10_000 },
+  );
+  await page.evaluate(() =>
+    document.getElementById('reels-widget-host').shadowRoot.querySelector('.launcher').click());
+
+  await page.waitForFunction(
+    () => document.getElementById('reels-widget-host')?.hasAttribute('data-reels-ready'),
+    null, { timeout: 15_000 },
+  );
+  const frame = page.frames().find((f) => f.url().includes('/embed/widget.html'));
+  check('виджет открылся', Boolean(frame));
+  if (!frame) throw new Error('фрейм виджета не загрузился');
+
+  console.log('\nВход по паролю');
+  await frame.waitForSelector('#gate:not([hidden])', { timeout: 10_000 });
+  await frame.fill('#gate-password', PASSWORD);
+  await frame.click('#gate-submit');
+  await frame.waitForSelector('#app:not([hidden])', { timeout: 10_000 });
+  check('пароль принят, интерфейс открыт', true);
+
+  console.log('\nВвод объекта');
   const asset = (n) => `http://127.0.0.1:${APP}/examples/assets/${n}`;
-  const card = {
-    complex: { name: 'ЖК «Проверка связи»', location: { city: 'Москва', street: 'Тестовая, 1' } },
-    price: { value: 7_900_000, currency: 'RUB', isFrom: true },
-    media: [1, 2, 3].map((i) => ({ kind: 'render', url: asset(`render-${i}.jpg`) })),
-  };
-  const started = await fetch(`http://127.0.0.1:${APP}/api/render`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ card, scenario: 'complex-overview' }),
-  }).then((r) => r.json());
+  await frame.click('#tab-manual');
+  await frame.fill('#m-name', 'ЖК «Проверка связи»');
+  await frame.fill('#m-city', 'Москва');
+  await frame.fill('#m-street', 'Тестовая, 1');
+  await frame.fill('#m-price', '7 900 000');
+  await frame.fill('#m-renders', [1, 2, 3].map((i) => asset(`render-${i}.jpg`)).join('\n'));
+  await frame.click('#manual-form button[type="submit"]');
 
-  let result = null;
-  for (let i = 0; i < 400; i++) {
-    const { job } = await fetch(`http://127.0.0.1:${APP}/api/jobs/${started.job.id}`).then((r) => r.json());
-    if (job.status === 'done') { result = job.result; break; }
-    if (job.status === 'error') throw new Error(job.error);
-    await wait(700);
-  }
-  check('ролик собран', Boolean(result), result ? `${result.seconds} с` : '');
-  if (!result) throw new Error('рендер не завершился');
+  // Сценарий выбирается сам, как только карточка разобрана.
+  await frame.waitForSelector('#export:not([disabled])', { timeout: 20_000 });
+  check('объект разобран, сценарий выбран', true);
 
-  check('путь относительный', result.videoPath?.startsWith('/files/'), result.videoPath);
-  check('имя читаемое', /[А-Яа-я]/.test(result.downloadName ?? ''), result.downloadName);
+  console.log('\nЭкспорт');
+  await frame.click('#export');
+
+  // Здесь и пряталась поломка: опрос задачи шёл без токена, статус
+  // никогда не менялся, и ссылка на файл не появлялась вовсе.
+  const progressed = await frame
+    .waitForFunction(
+      () => /Рендер|В очереди/.test(document.getElementById('status')?.textContent ?? ''),
+      null, { timeout: 30_000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check('статус задачи обновляется', progressed,
+    await frame.evaluate(() => document.getElementById('status')?.textContent ?? ''));
+
+  const link = await frame
+    .waitForSelector('#done a.btn', { timeout: 360_000 })
+    .catch(() => null);
+  check('ссылка на готовый файл появилась', Boolean(link),
+    await frame.evaluate(() => document.getElementById('status')?.textContent ?? ''));
+  if (!link) throw new Error('рендер не довёл до ссылки');
+
+  const href = await link.getAttribute('href');
+  check('ссылка ведёт на сервис', href.startsWith(`http://127.0.0.1:${APP}/files/`), href.slice(0, 70));
 
   console.log('\nОтдача файла');
-  const head = await fetch(
-    `http://127.0.0.1:${APP}${result.videoPath}?download=${encodeURIComponent(result.downloadName)}`,
-    { method: 'HEAD' },
-  );
+  const head = await fetch(href, { method: 'HEAD' });
   check('файл доступен', head.ok, `код ${head.status}`);
   const disp = head.headers.get('content-disposition') ?? '';
   check('отдаётся как вложение', disp.startsWith('attachment'), disp.slice(0, 60));
   check('имя в UTF-8', disp.includes("filename*=UTF-8''"));
 
-  console.log('\nСкачивание из встроенного виджета');
-  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH, args: ['--no-sandbox'] });
-  const ctx = await browser.newContext({ acceptDownloads: true });
-  const page = await ctx.newPage();
-
-  await page.goto(`http://127.0.0.1:${SITE}/`, { waitUntil: 'domcontentloaded' });
-  await wait(900);
-  await page.evaluate(() =>
-    document.getElementById('reels-widget-host').shadowRoot.querySelector('.launcher').click());
-  await wait(2000);
-
-  const frame = page.frames().find((f) => f.url().includes('/embed/widget.html'));
-  check('виджет открылся', Boolean(frame));
-
-  if (frame) {
-    // Подставляем готовый результат в интерфейс: проверяется доставка
-    // файла, а не повторный рендер, который уже проверен выше.
-    await frame.evaluate((r) => window.__showDone(r), result);
-    await frame.waitForSelector('#done a.btn', { timeout: 10_000 });
-
-    const downloadPromise = page.waitForEvent('download', { timeout: 15_000 }).catch(() => null);
-    await frame.click('#done a.btn');
-    const download = await downloadPromise;
-
-    check('браузер начал скачивание', Boolean(download));
-    if (download) {
-      const saved = await download.path();
-      const size = saved ? fs.statSync(saved).size : 0;
-      check('файл сохранён целиком', size > 100_000, `${(size / 1048576).toFixed(2)} МБ`);
-      // Имя сохранённого файла здесь намеренно не проверяется:
-      // headless-браузер не применяет Content-Disposition к имени и
-      // всегда отдаёт «download», тогда как обычный Chrome берёт имя
-      // из заголовка. Корректность заголовка проверена выше — именно
-      // он и определяет имя у пользователя.
-    }
+  console.log('\nСкачивание');
+  const downloadPromise = page.waitForEvent('download', { timeout: 20_000 }).catch(() => null);
+  await link.click();
+  const download = await downloadPromise;
+  check('браузер начал скачивание', Boolean(download));
+  if (download) {
+    const saved = await download.path();
+    const size = saved ? fs.statSync(saved).size : 0;
+    check('файл сохранён целиком', size > 100_000, `${(size / 1048576).toFixed(2)} МБ`);
+    // Имя сохранённого файла здесь намеренно не проверяется:
+    // headless-браузер не применяет Content-Disposition к имени и
+    // всегда отдаёт «download», тогда как обычный Chrome берёт имя
+    // из заголовка. Корректность заголовка проверена выше — именно
+    // он и определяет имя у пользователя.
   }
 
   await browser.close();
@@ -142,5 +168,5 @@ try {
   site.close();
 }
 
-console.log(failures ? `\n✗ Проблем: ${failures}\n` : '\n✓ Скачивание работает\n');
+console.log(failures ? `\n✗ Проблем: ${failures}\n` : '\n✓ Экспорт и скачивание работают\n');
 process.exit(failures ? 1 : 0);

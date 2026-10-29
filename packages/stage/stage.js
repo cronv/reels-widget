@@ -809,10 +809,28 @@
     return this;
   };
 
-  Stage.prototype.seek = function (frame) {
+  /**
+   * Показывает состояние ролика на указанном кадре.
+   *
+   * `exact` — дробный кадр без округления. Так рисуется только превью:
+   * ролик идёт 30 кадров в секунду, а экран обновляется 60 или 120 раз,
+   * и округление превращало плавную панораму по фотографии в движение
+   * рывками — каждый кадр висел два-четыре обновления, а при любой
+   * заминке три или одно. Это и выглядело как «скачет изображение»,
+   * хотя кадры не терялись: замер показывал честные 60 в секунду.
+   *
+   * Дробный кадр сдвигает картинку на малую долю за каждое обновление
+   * экрана, и неровность хода перестаёт быть заметной.
+   *
+   * Покадровый захват для MP4 идёт по-прежнему целыми кадрами: там
+   * округление — не помеха, а условие воспроизводимости.
+   */
+  Stage.prototype.seek = function (frame, exact) {
     if (!this.timeline) return;
-    var f = Math.max(0, Math.min(Math.round(frame), this.timeline.durationInFrames - 1));
-    this.frame = f;
+    var last = this.timeline.durationInFrames - 1;
+    var f = Math.max(0, Math.min(exact ? frame : Math.round(frame), last));
+    // Наружу кадр сообщается целым: на нём держатся перемотка и таймер.
+    this.frame = Math.round(f);
 
     for (var s = 0; s < this.scenes.length; s++) {
       var entry = this.scenes[s];
@@ -908,7 +926,7 @@
         self._playFromFrame = 0;
         self._playStartedAt = now;
       } else {
-        self.seek(frame);
+        self.seek(frame, true);
       }
       self._raf = requestAnimationFrame(tick);
     };

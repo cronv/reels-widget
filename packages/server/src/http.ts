@@ -114,6 +114,27 @@ function selfOrigin(): string | null {
 }
 
 /**
+ * Пришёл ли запрос на тот же адрес, с которого загружена страница.
+ *
+ * Прежде «свой» адрес брался только из PUBLIC_URL, и при пустой или
+ * ошибочной настройке сервис запрещал доступ сам себе: виджет грузился
+ * с его домена, стучался к нему же и получал 403 с сообщением «этому
+ * домену не разрешено» — то есть обвинял в чужеродности собственную
+ * страницу. Заголовок Host говорит, по какому адресу к нам пришли на
+ * самом деле, поэтому правило «свой домен разрешён» перестаёт зависеть
+ * от того, вспомнили ли заполнить настройку.
+ */
+function sameHost(req: IncomingMessage, origin: string): boolean {
+  const host = req.headers.host;
+  if (!host) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Кому разрешено встраивать виджет в iframe.
  *
  * Заголовок формируется здесь, а не в конфиге nginx, намеренно: список
@@ -182,10 +203,11 @@ export function embedAllowed(origin: string): boolean {
 }
 
 /** Разрешено ли происхождение встраивать виджет и дёргать API. */
-function originAllowed(origin: string | undefined): string | null {
+function originAllowed(origin: string | undefined, req?: IncomingMessage): string | null {
   if (!config.allowedOrigins.length) return origin ?? '*';
   if (!origin) return null;
   if (origin === selfOrigin()) return origin;
+  if (req && sameHost(req, origin)) return origin;
   return config.allowedOrigins.some((p) => originMatches(origin, p)) ? origin : null;
 }
 
@@ -203,7 +225,7 @@ const OPEN_TO_ANY_ORIGIN = new Set(['/api/embed/check', '/health']);
 
 export function applyCors(req: IncomingMessage, res: ServerResponse, pathname?: string): boolean {
   const origin = req.headers.origin;
-  const allowed = originAllowed(origin);
+  const allowed = originAllowed(origin, req);
   const diagnostic = pathname != null && OPEN_TO_ANY_ORIGIN.has(pathname);
   if (origin && allowed === null && !diagnostic) {
     json(res, 403, { error: 'Этому домену не разрешено обращаться к виджету.' });

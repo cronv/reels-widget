@@ -770,31 +770,58 @@
       });
   });
 
+  /**
+   * Следит за задачей рендера до готового файла.
+   *
+   * Запрос идёт через request(), а не голым fetch: статус задачи закрыт
+   * паролем, как и сам рендер. Без заголовка с токеном сервер отвечал
+   * 401, разбор ответа падал, ошибку глотал пустой catch — и кнопка
+   * навсегда оставалась в состоянии «Ставлю в очередь…». Ролик при
+   * этом собирался; до виджета просто не доходила новость об этом.
+   */
   function pollJob(id, btn) {
     clearInterval(state.poll);
+    // Сеть может моргнуть, и один неудачный тик — не повод сдаваться.
+    // Но молчать бесконечно нельзя: зависший опрос выглядит точно так
+    // же, как вечный рендер, и именно так эта поломка и пряталась.
+    var misses = 0;
+
+    var stop = function () { clearInterval(state.poll); busy(btn, false); };
+
     state.poll = setInterval(function () {
-      fetch(API + '/api/jobs/' + id)
-        .then(function (r) { return r.json(); })
+      request('/api/jobs/' + id, undefined, 'GET')
         .then(function (data) {
+          misses = 0;
           var job = data.job;
           $('progress-fill').style.width = Math.round(job.progress * 100) + '%';
           if (job.status === 'queued') {
-            $('status').textContent = 'В очереди: ' + data.queue.waiting + ' перед вами';
+            $('status').textContent = data.queue && data.queue.waiting
+              ? 'В очереди: ' + data.queue.waiting + ' перед вами'
+              : 'В очереди…';
           } else if (job.status === 'running') {
             $('status').textContent = 'Рендер ' + Math.round(job.progress * 100) + '%';
           } else if (job.status === 'done') {
-            clearInterval(state.poll);
-            busy(btn, false);
+            stop();
             showDone(job);
           } else if (job.status === 'error') {
-            clearInterval(state.poll);
-            busy(btn, false);
+            stop();
             $('progress-track').hidden = true;
             $('status').textContent = job.error;
             $('status').className = 'status status--err';
           }
         })
-        .catch(function () { /* сеть моргнула — следующий тик попробует снова */ });
+        .catch(function (err) {
+          // Истёкший токен уже вернул форму входа — продолжать незачем.
+          if (err && err.handled) { stop(); return; }
+          misses += 1;
+          if (misses < 8) return;
+          stop();
+          $('progress-track').hidden = true;
+          $('status').className = 'status status--err';
+          $('status').textContent =
+            'Связь с сервисом потеряна: ' + (err && err.message ? err.message : 'нет ответа') +
+            '. Рендер мог завершиться — обновите виджет и проверьте.';
+        });
     }, 900);
   }
 
